@@ -5,12 +5,14 @@ import { USERS } from '@/lib/users'
 export function AuthPage() {
   const { signIn } = useAuth()
   const [email, setEmail] = useState('')
+  const [password, setPassword] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     if (!email) { setError('Please select a user'); return }
+    if (!password) { setError('Password is required'); return }
     setLoading(true)
     setError(null)
     const result = await signIn(email)
@@ -60,6 +62,18 @@ export function AuthPage() {
                 {selectedUser.email}
               </div>
             )}
+
+            <div>
+              <label className="label-base">Password</label>
+              <input
+                type="password"
+                className="input-base"
+                placeholder="••••••••"
+                value={password}
+                onChange={(e) => { setPassword(e.target.value); setError(null) }}
+                autoComplete="current-password"
+              />
+            </div>
 
             {error && (
               <div className="text-sm text-error-700 bg-error-50 rounded-lg px-3 py-2 border border-red-200">
