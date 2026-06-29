@@ -15,6 +15,7 @@ export interface Database {
           authority_level: number
           authority_notes: string | null
           status: 'active' | 'inactive' | 'pending'
+          a43ac9: boolean | null
           created_at: string
           updated_at: string
         }
@@ -29,6 +30,7 @@ export interface Database {
           authority_level?: number
           authority_notes?: string | null
           status?: 'active' | 'inactive' | 'pending'
+          a43ac9?: boolean | null
         }
         Update: {
           id?: string
@@ -41,6 +43,7 @@ export interface Database {
           authority_level?: number
           authority_notes?: string | null
           status?: 'active' | 'inactive' | 'pending'
+          a43ac9?: boolean | null
         }
       }
       authority_rules: {

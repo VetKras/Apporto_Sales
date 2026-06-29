@@ -6,11 +6,11 @@ import {
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/contexts/AuthContext'
 import {
-  calculateQuote, loadActivePricingConfig, persistQuoteLines,
+  calculateQuote, loadActivePricingConfig, loadPricingRules, persistQuoteLines,
   persistQuoteSnapshot, loadQuoteSnapshots, removeQuoteSnapshot,
   buildQuoteSourceTrace, type DealInputs, type QuoteResult,
-  type PricingConfigVersion, type PricingModel,
-  type QuoteSnapshot,
+  type PricingConfigVersion, type PricingModel, type PricingRules,
+  type QuoteSnapshot, DEFAULT_RULES,
 } from '@/lib/pricing-engine'
 import {
   PROPOSAL_SECTION_DEFAULTS,
@@ -52,6 +52,7 @@ export function DealWorkspace({ deal, onClose }: Props) {
   const [configVersion, setConfigVersion] = useState<PricingConfigVersion | null>(null)
   const [pricingModels, setPricingModels] = useState<PricingModel[]>([])
   const [quoteResult, setQuoteResult] = useState<QuoteResult | null>(null)
+  const [pricingRules, setPricingRules] = useState<PricingRules>(DEFAULT_RULES)
   const [saving, setSaving] = useState(false)
   const [calculating, setCalculating] = useState(false)
   const [centerMode, setCenterMode] = useState<'quote' | 'proposal' | 'battlecard' | 'strategy'>('quote')
@@ -83,13 +84,15 @@ export function DealWorkspace({ deal, onClose }: Props) {
   // Load products, pricing config, and saved snapshots
   useEffect(() => {
     async function load() {
-      const [{ data: prods }, config, snapshots] = await Promise.all([
+      const [{ data: prods }, config, snapshots, rules] = await Promise.all([
         supabase.from('products').select('*').eq('status', 'active'),
         loadActivePricingConfig(),
         loadQuoteSnapshots(deal.id),
+        loadPricingRules(),
       ])
       setProducts(prods ?? [])
       setSavedQuotes(snapshots)
+      setPricingRules(rules)
       if (config) {
         setConfigVersion(config.version)
         setPricingModels(config.models)
@@ -117,7 +120,7 @@ export function DealWorkspace({ deal, onClose }: Props) {
     setCalculating(true)
     try {
       const dealInputs: DealInputs = { ...inputs, deal_id: deal.id }
-      const result = calculateQuote(dealInputs, configVersion, pricingModels)
+      const result = calculateQuote(dealInputs, configVersion, pricingModels, pricingRules)
       setQuoteResult(result)
       setLoadedQuoteId(null) // unsaved changes
     } finally {
@@ -198,14 +201,14 @@ export function DealWorkspace({ deal, onClose }: Props) {
     setHsPushing(true)
     setHsResult(null)
     try {
-      const { data: { session } } = await supabase.auth.getSession()
+      const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string
       const res = await fetch(
         `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/hubspot-action`,
         {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            Authorization: `Bearer ${session?.access_token}`,
+            Authorization: `Bearer ${supabaseAnonKey}`,
           },
           body: JSON.stringify({
             action: 'push_deal',

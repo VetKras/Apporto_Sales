@@ -13,6 +13,7 @@ import {
   getActivePricingConfig,
   getAllPricingConfigs,
   getPricingModelsForVersion,
+  getIntegrationSetting,
   replaceQuoteLines,
   saveQuoteSnapshot,
   getQuoteSnapshots,
@@ -180,15 +181,53 @@ export interface BundleSuggestion {
 
 export type ApprovalLevel = 'Sales' | 'Manager' | 'VP' | 'CFO/Executive'
 
-// ─── Bundle / approval thresholds (read-only constants, not pricing values) ──
+// ─── Pricing rules (admin-configurable, loaded from integration_settings) ────
 
-const BUNDLE_DISCOUNTS: Record<number, number> = { 2: 10, 3: 15, 4: 20 }
+export interface PricingRules {
+  approval: { sales_max: number; manager_max: number; vp_max: number }
+  bundle_discounts: { two: number; three: number; four: number }
+  tco_default_multiplier: number
+  target_gross_margin_pct: number
+  examspace_volume_discounts: { threshold_usd: number; discount_pct: number }[]
+}
+
+export const DEFAULT_RULES: PricingRules = {
+  approval: { sales_max: 5, manager_max: 10, vp_max: 15 },
+  bundle_discounts: { two: 10, three: 15, four: 20 },
+  tco_default_multiplier: 1.6,
+  target_gross_margin_pct: 70,
+  examspace_volume_discounts: [
+    { threshold_usd: 50000,  discount_pct: 3  },
+    { threshold_usd: 100000, discount_pct: 5  },
+    { threshold_usd: 150000, discount_pct: 7  },
+    { threshold_usd: 200000, discount_pct: 10 },
+    { threshold_usd: 300000, discount_pct: 14 },
+  ],
+}
+
+export async function loadPricingRules(): Promise<PricingRules> {
+  const row = await getIntegrationSetting('pricing_rules')
+  if (!row?.api_key) return DEFAULT_RULES
+  try {
+    return { ...DEFAULT_RULES, ...JSON.parse(row.api_key) }
+  } catch {
+    return DEFAULT_RULES
+  }
+}
+
+// ─── Bundle / approval thresholds (use loaded rules at call time) ─────────────
 
 function getBundleSuggestion(
   productCount: number,
-  currentDiscountPercent: number
+  currentDiscountPercent: number,
+  rules: PricingRules
 ): BundleSuggestion | null {
-  const suggested = BUNDLE_DISCOUNTS[productCount]
+  const discounts: Record<number, number> = {
+    2: rules.bundle_discounts.two,
+    3: rules.bundle_discounts.three,
+    4: rules.bundle_discounts.four,
+  }
+  const suggested = discounts[productCount]
   if (!suggested) return null
   return {
     product_count: productCount,
@@ -197,10 +236,10 @@ function getBundleSuggestion(
   }
 }
 
-function getApprovalLevel(discountPercent: number): ApprovalLevel {
-  if (discountPercent <= 5) return 'Sales'
-  if (discountPercent <= 10) return 'Manager'
-  if (discountPercent <= 15) return 'VP'
+function getApprovalLevel(discountPercent: number, rules: PricingRules): ApprovalLevel {
+  if (discountPercent <= rules.approval.sales_max) return 'Sales'
+  if (discountPercent <= rules.approval.manager_max) return 'Manager'
+  if (discountPercent <= rules.approval.vp_max) return 'VP'
   return 'CFO/Executive'
 }
 
@@ -228,7 +267,8 @@ export async function loadPricingModelsForVersion(versionId: string) {
 export function calculateQuote(
   inputs: DealInputs,
   version: PricingConfigVersion,
-  models: PricingModel[]
+  models: PricingModel[],
+  rules: PricingRules = DEFAULT_RULES
 ): QuoteResult {
   const lines: QuoteLine[] = []
 
@@ -258,7 +298,8 @@ export function calculateQuote(
 
   const bundle_suggestion = getBundleSuggestion(
     inputs.selected_products.length,
-    discount_percent
+    discount_percent,
+    rules
   )
 
   const linesWithDiscount: QuoteLine[] = lines.map((l) => {
@@ -326,7 +367,7 @@ export function calculateQuote(
     tco_low,
     tco_high,
     bundle_suggestion,
-    approval_level: getApprovalLevel(discount_percent),
+    approval_level: getApprovalLevel(discount_percent, rules),
     inputs_snapshot: { ...inputs },
     assumptions,
   }

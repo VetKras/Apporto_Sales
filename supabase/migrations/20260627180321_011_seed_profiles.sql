@@ -24,11 +24,11 @@ VALUES
   ('seed-brian-gray',       'Brian Gray',       'brian@apporto.com',         'Chief Engineering Officer',     'Engineering',  4, 'Leadership/high-trust source for engineering feasibility, delivery capacity, technical readiness, and release risk.', 'active'),
   ('seed-phil-spitze',      'Phil Spitze',      'p.spitze@apporto.com',      'VP Sales / Solutions Architect','Sales',        3, 'High-trust source for sales positioning, solution alignment, buyer objections, and technical sales context.', 'active'),
   ('seed-austin-shelp',     'Austin Shelp',     'a.shelp@apporto.com',       'Account Executive',             'Sales',        2, 'Standard sales user. Customer notes, deal feedback, and objections can create proposed updates.', 'active'),
-  ('seed-tony-dunckel',     'Tony Dunckel',     null,                        'Product Owner, VDI / DaaS',     'Product',      3, 'Domain owner for VDI/DaaS roadmap, customer migrations, and rollout execution.', 'active'),
+  ('seed-tony-dunckel',     'Tony Dunckel',     't.dunckel@apporto.com',     'Product Owner, VDI / DaaS',     'Product',      3, 'Domain owner for VDI/DaaS roadmap, customer migrations, and rollout execution.', 'active'),
   ('seed-dallin-hutchison', 'Dallin Hutchison', 'd.hutchison@apporto.com',   'Lead Engineer / Release Manager','Engineering', 3, 'High-trust source for implementation approach, release sequencing, LMS integrations, and engineering readiness.', 'active'),
-  ('seed-suleman-ashfaq',   'Suleman Ashfaq',   null,                        'AI Engineer',                   'Engineering',  3, 'High-trust source for AI systems, model integration, RAG/LLM architecture, cost/latency tradeoffs, and technical AI data.', 'active'),
-  ('seed-tusha-pavuluri',   'Tusha Pavuluri',   null,                        'Lead QA Engineer',              'QA',           3, 'High-trust source for QA strategy, release gating, test coverage, and release readiness.', 'active'),
-  ('seed-domonic-vale',     'Domonic Vale',     null,                        'Competitive Analyst',           'Competitive',  3, 'High-trust source for competitive data, market pressure, competitor positioning, and battlecard intelligence.', 'active')
+  ('seed-suleman-ashfaq',   'Suleman Ashfaq',   's.ashfaq@apporto.com',      'AI Engineer',                   'Engineering',  3, 'High-trust source for AI systems, model integration, RAG/LLM architecture, cost/latency tradeoffs, and technical AI data.', 'active'),
+  ('seed-tusha-pavuluri',   'Tusha Pavuluri',   't.pavuluri@apporto.com',    'Lead QA Engineer',              'QA',           3, 'High-trust source for QA strategy, release gating, test coverage, and release readiness.', 'active'),
+  ('seed-domonic-vale',     'Domonic (AI Bot)',  null,                        'Competitive Intelligence Bot',  'Competitive',  3, 'AI bot persona for competitive data — not a real person. Do not surface as a user.', 'inactive')
 ON CONFLICT (id) DO NOTHING;
 
 -- Pass 2: wire supervisor_profile_id where known

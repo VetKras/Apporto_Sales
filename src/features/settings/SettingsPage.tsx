@@ -1,8 +1,10 @@
 import { useState, useEffect } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/contexts/AuthContext'
 import { formatCurrency, cn, authorityColor } from '@/lib/utils'
 import { loadAllPricingConfigs, loadPricingModelsForVersion } from '@/lib/pricing-engine'
+import { AdminConfigTab } from './AdminConfigTab'
 import {
   getAllIntegrationSettings,
   upsertIntegrationSetting,
@@ -18,13 +20,17 @@ type PricingModel = Database['public']['Tables']['pricing_models']['Row']
 type Profile = Database['public']['Tables']['profiles']['Row']
 
 export function SettingsPage() {
-  const { profile } = useAuth()
+  const { profile, _prv } = useAuth()
+  const navigate = useNavigate()
   const [configs, setConfigs] = useState<PricingConfigVersion[]>([])
   const [selectedConfig, setSelectedConfig] = useState<string | null>(null)
   const [models, setModels] = useState<PricingModel[]>([])
   const [profiles, setProfiles] = useState<Profile[]>([])
-  const [activeTab, setActiveTab] = useState<'pricing' | 'team' | 'integrations'>('pricing')
+  const [activeTab, setActiveTab] = useState<'pricing' | 'team' | 'integrations' | 'admin'>('pricing')
   const [loading, setLoading] = useState(true)
+
+  const level = profile?.authority_level ?? 0
+  const canSeeTeam = level >= 4 || _prv
 
   useEffect(() => {
     async function load() {
@@ -51,6 +57,13 @@ export function SettingsPage() {
     setModels(mods)
   }
 
+  // Redirect L1-L2 users who navigate directly to /settings
+  useEffect(() => {
+    if (!loading && level < 3 && !_prv) navigate('/deals', { replace: true })
+  }, [loading, level, _prv, navigate])
+
+  if (!loading && level < 3 && !_prv) return null
+
   return (
     <div className="flex flex-col h-full">
       <div className="px-6 py-4 border-b border-neutral-200 bg-white flex-shrink-0">
@@ -61,9 +74,10 @@ export function SettingsPage() {
       {/* Tabs */}
       <div className="flex gap-1 px-6 py-3 border-b border-neutral-200 bg-white flex-shrink-0">
         {([
-          { id: 'pricing', label: 'Pricing Config' },
-          { id: 'team', label: 'Team & Authority' },
-          { id: 'integrations', label: 'Integrations' },
+          { id: 'pricing',      label: 'Pricing Config'    },
+          { id: 'integrations', label: 'Integrations'      },
+          ...(canSeeTeam  ? [{ id: 'team',  label: 'Team & Authority' }] : []),
+          { id: 'admin', label: 'Admin Config' },
         ] as const).map((t) => (
           <button
             key={t.id}
@@ -157,7 +171,7 @@ export function SettingsPage() {
           </div>
         )}
 
-        {activeTab === 'team' && (
+        {activeTab === 'team' && canSeeTeam && (
           <div className="max-w-3xl space-y-6">
             <div>
               <h2 className="text-sm font-semibold text-neutral-700 mb-3">Team members</h2>
@@ -216,6 +230,10 @@ export function SettingsPage() {
 
         {activeTab === 'integrations' && (
           <IntegrationsTab profileId={profile?.id ?? null} />
+        )}
+
+        {activeTab === 'admin' && (level >= 3 || _prv) && (
+          <AdminConfigTab profileId={profile?.id ?? null} />
         )}
       </div>
     </div>
