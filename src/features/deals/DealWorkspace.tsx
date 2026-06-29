@@ -25,6 +25,7 @@ import { cn, formatCurrency } from '@/lib/utils'
 
 type Deal = Database['public']['Tables']['deals']['Row']
 type Product = Database['public']['Tables']['products']['Row']
+type ProductFact = Database['public']['Tables']['product_facts']['Row']
 
 interface Props {
   deal: Deal
@@ -49,6 +50,7 @@ const EMPTY_INPUTS: Omit<DealInputs, 'deal_id'> = {
 export function DealWorkspace({ deal, onClose }: Props) {
   const { profile } = useAuth()
   const [products, setProducts] = useState<Product[]>([])
+  const [productFacts, setProductFacts] = useState<Record<string, ProductFact[]>>({})
   const [configVersion, setConfigVersion] = useState<PricingConfigVersion | null>(null)
   const [pricingModels, setPricingModels] = useState<PricingModel[]>([])
   const [quoteResult, setQuoteResult] = useState<QuoteResult | null>(null)
@@ -84,13 +86,20 @@ export function DealWorkspace({ deal, onClose }: Props) {
   // Load products, pricing config, and saved snapshots
   useEffect(() => {
     async function load() {
-      const [{ data: prods }, config, snapshots, rules] = await Promise.all([
+      const [{ data: prods }, { data: allFacts }, config, snapshots, rules] = await Promise.all([
         supabase.from('products').select('*').eq('status', 'active'),
+        supabase.from('product_facts').select('*'),
         loadActivePricingConfig(),
         loadQuoteSnapshots(deal.id),
         loadPricingRules(),
       ])
       setProducts(prods ?? [])
+      const factsByProduct: Record<string, ProductFact[]> = {}
+      for (const f of (allFacts ?? [])) {
+        if (!factsByProduct[f.product_id]) factsByProduct[f.product_id] = []
+        factsByProduct[f.product_id].push(f)
+      }
+      setProductFacts(factsByProduct)
       setSavedQuotes(snapshots)
       setPricingRules(rules)
       if (config) {
@@ -274,6 +283,7 @@ export function DealWorkspace({ deal, onClose }: Props) {
             inputs={inputs}
             products={products}
             pricingModels={pricingModels}
+            productFacts={productFacts}
             onInputsChange={setInputs}
           />
         </div>

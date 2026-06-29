@@ -1,15 +1,17 @@
 import { useState } from 'react'
-import { ChevronDown, ChevronRight, AlertTriangle, AlertCircle } from 'lucide-react'
+import { ChevronDown, ChevronRight, AlertTriangle, AlertCircle, CheckCircle, Info, BookOpen } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { COTUTOR_MODELS, COTUTOR_DEFAULT_MODEL, type DealInputs, type SelectedProduct, type PricingModel } from '@/lib/pricing-engine'
 import type { Database } from '@/types/database'
 
 type Product = Database['public']['Tables']['products']['Row']
+type ProductFact = Database['public']['Tables']['product_facts']['Row']
 
 interface Props {
   inputs: Omit<DealInputs, 'deal_id'>
   products: Product[]
   pricingModels: PricingModel[]
+  productFacts: Record<string, ProductFact[]>
   onInputsChange: (inputs: Omit<DealInputs, 'deal_id'>) => void
 }
 
@@ -26,7 +28,7 @@ function defaultSelectedProduct(p: Product): SelectedProduct {
   }
 }
 
-export function QuoteInputsPanel({ inputs, products, pricingModels, onInputsChange }: Props) {
+export function QuoteInputsPanel({ inputs, products, pricingModels, productFacts, onInputsChange }: Props) {
   const [productExpanded, setProductExpanded] = useState(true)
   const [inputsExpanded, setInputsExpanded] = useState(true)
   const [termsExpanded, setTermsExpanded] = useState(false)
@@ -243,6 +245,8 @@ export function QuoteInputsPanel({ inputs, products, pricingModels, onInputsChan
                         <OverrideRow value={sel.override_price} onChange={(v) => updateSel(p.id, { override_price: v })} />
                       </>
                     )}
+
+                    <ProductIntel product={p} facts={productFacts[p.id] ?? []} />
                   </div>
                 )}
               </div>
@@ -445,6 +449,92 @@ function Warn({ children }: { children: React.ReactNode }) {
     <div className="flex items-start gap-1.5 text-xs text-amber-700 bg-amber-50 rounded px-2 py-1.5 border border-amber-200 mt-1">
       <AlertTriangle className="w-3 h-3 flex-shrink-0 mt-0.5" />
       <span>{children}</span>
+    </div>
+  )
+}
+
+function ProductIntel({ product, facts }: { product: Product; facts: ProductFact[] }) {
+  const [open, setOpen] = useState(false)
+
+  const claims       = facts.filter((f) => f.fact_type === 'sales_safe_claim')
+  const capabilities = facts.filter((f) => f.fact_type === 'capability')
+  const risks        = facts.filter((f) => f.fact_type === 'known_risk')
+  const integrations = facts.filter((f) => f.fact_type === 'integration')
+
+  const hasAnything = product.positioning || claims.length || capabilities.length || risks.length || integrations.length
+  if (!hasAnything) return null
+
+  return (
+    <div className="mt-3 border-t border-brand-100 pt-2.5">
+      <button
+        onClick={() => setOpen((o) => !o)}
+        className="flex items-center gap-1.5 text-xs font-medium text-neutral-500 hover:text-neutral-700 transition-colors"
+      >
+        <BookOpen className="w-3 h-3" />
+        Product intel
+        {open ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
+      </button>
+
+      {open && (
+        <div className="mt-2 space-y-3">
+          {product.positioning && (
+            <p className="text-xs text-neutral-600 leading-relaxed italic">{product.positioning}</p>
+          )}
+
+          {risks.length > 0 && (
+            <div>
+              {risks.map((f) => (
+                <Warn key={f.id}>{f.content}</Warn>
+              ))}
+            </div>
+          )}
+
+          {claims.length > 0 && (
+            <div>
+              <div className="flex items-center gap-1.5 mb-1">
+                <CheckCircle className="w-3 h-3 text-emerald-600" />
+                <span className="text-xs font-semibold text-neutral-500 uppercase tracking-wide">Sales-safe claims</span>
+              </div>
+              {claims.map((f) => (
+                <div key={f.id} className="flex gap-1.5 text-xs text-neutral-700 leading-relaxed">
+                  <span className="text-neutral-300 flex-shrink-0">·</span>
+                  <span>{f.content}</span>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {capabilities.length > 0 && (
+            <div>
+              <div className="flex items-center gap-1.5 mb-1">
+                <Info className="w-3 h-3 text-brand-600" />
+                <span className="text-xs font-semibold text-neutral-500 uppercase tracking-wide">Capabilities</span>
+              </div>
+              {capabilities.map((f) => (
+                <div key={f.id} className="flex gap-1.5 text-xs text-neutral-700 leading-relaxed">
+                  <span className="text-neutral-300 flex-shrink-0">·</span>
+                  <span>{f.content}</span>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {integrations.length > 0 && (
+            <div>
+              <div className="flex items-center gap-1.5 mb-1">
+                <Info className="w-3 h-3 text-neutral-400" />
+                <span className="text-xs font-semibold text-neutral-500 uppercase tracking-wide">Integrations</span>
+              </div>
+              {integrations.map((f) => (
+                <div key={f.id} className="flex gap-1.5 text-xs text-neutral-700 leading-relaxed">
+                  <span className="text-neutral-300 flex-shrink-0">·</span>
+                  <span>{f.content}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   )
 }
