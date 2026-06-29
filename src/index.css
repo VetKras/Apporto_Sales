@@ -1,0 +1,74 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  *, *::before, *::after { box-sizing: border-box; }
+
+  html {
+    font-family: 'Inter', system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    color: #1e293b;
+    background: #f8fafc;
+  }
+
+  ::-webkit-scrollbar { width: 6px; height: 6px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 3px; }
+  ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+}
+
+@layer utilities {
+  .panel-base {
+    @apply flex flex-col h-full bg-white border-r border-neutral-200 overflow-hidden;
+  }
+  .panel-header {
+    @apply flex items-center justify-between px-4 py-3 border-b border-neutral-200 bg-neutral-50 flex-shrink-0;
+  }
+  .panel-body {
+    @apply flex-1 overflow-y-auto p-4;
+  }
+  .btn-primary {
+    @apply inline-flex items-center gap-2 px-4 py-2 bg-brand-600 text-white text-sm font-medium rounded-lg
+           hover:bg-brand-700 active:bg-brand-800 transition-colors disabled:opacity-50 disabled:cursor-not-allowed;
+  }
+  .btn-secondary {
+    @apply inline-flex items-center gap-2 px-4 py-2 bg-white text-neutral-700 text-sm font-medium rounded-lg
+           border border-neutral-300 hover:bg-neutral-50 active:bg-neutral-100 transition-colors
+           disabled:opacity-50 disabled:cursor-not-allowed;
+  }
+  .btn-ghost {
+    @apply inline-flex items-center gap-2 px-3 py-1.5 text-neutral-600 text-sm font-medium rounded-md
+           hover:bg-neutral-100 active:bg-neutral-200 transition-colors;
+  }
+  .input-base {
+    @apply w-full px-3 py-2 text-sm bg-white border border-neutral-300 rounded-lg
+           focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-brand-500
+           placeholder:text-neutral-400 transition-colors;
+  }
+  .select-base {
+    @apply w-full px-2 py-1.5 text-xs bg-white border border-neutral-300 rounded-md
+           focus:outline-none focus:ring-1 focus:ring-brand-500 focus:border-brand-500
+           text-neutral-700 transition-colors;
+  }
+  .label-base {
+    @apply block text-xs font-medium text-neutral-500 mb-1;
+  }
+  .card {
+    @apply bg-white rounded-xl border border-neutral-200 shadow-sm;
+  }
+  .badge-internal {
+    @apply inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-amber-50 text-amber-700 border border-amber-200;
+  }
+  .badge-customer {
+    @apply inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-emerald-50 text-emerald-700 border border-emerald-200;
+  }
+  .badge-gap {
+    @apply inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-red-50 text-red-700 border border-red-200;
+  }
+  .badge-level {
+    @apply inline-flex items-center px-2 py-0.5 rounded text-xs font-medium;
+  }
+}

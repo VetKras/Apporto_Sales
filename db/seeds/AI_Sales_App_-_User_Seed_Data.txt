@@ -1,0 +1,232 @@
+AI Sales App - User Seed Data
+Bolt-ready seed reference
+
+Purpose
+This file defines the initial verified user seed records and authority rules for Apporto Sales.
+Use it to seed profiles and authority behavior only. Do not treat it as a complete employee directory.
+
+Source basis
+- I:/My Drive/Apporto/Veton/STAKEHOLDER_MAP.md
+- Current PO AI app planning notes
+- User-confirmed authority behavior
+
+Important corrections from draft
+- Removed Office search links, Outlook links, malformed citation text, and duplicate tables.
+- Removed fake placeholder users.
+- Seed only verified core records.
+- Unknown manager means unknown, not guessed.
+- Authority level controls conflict handling, not generic access control.
+- No silent overwrites are allowed at any authority level.
+
+Authority levels
+
+| Level | Label | Meaning | Conflict behavior |
+| --- | --- | --- | --- |
+| 1 | Low / new or unknown employee | Useful field signal, not trusted to change source truth | Block conflicting update immediately. Explain the conflict and tell the user to have their supervisor add or approve it. |
+| 2 | Standard sales/product user | Trusted for deal feedback and customer notes | Create proposed update for review. Do not directly overwrite source truth. |
+| 3 | Manager / domain owner | Trusted subject-matter owner for their domain | Perform deeper analysis and create a strong proposed update. May update only where product rules allow and audit trail is preserved. |
+| 4 | Executive / company leadership | Highest-trust source for business direction | Perform deferential conflict analysis, ask confirmation on meaningful conflicts, then apply audited override after confirmation. |
+
+No silent overwrites
+High authority does not mean automatic overwrite. It means Portia treats the source as more likely to be correct, analyzes conflicts more deeply, asks confirmation when needed, and records a durable audit trail.
+
+Seed table: profiles
+
+Recommended columns
+- id
+- auth_user_id
+- name
+- email
+- title
+- department
+- supervisor_profile_id
+- supervisor_name_seed
+- authority_level
+- authority_notes
+- status
+- created_at
+- updated_at
+
+Seed records
+
+[
+  {
+    "id": "seed-antony-awaida",
+    "name": "Antony Awaida",
+    "email": "antony@apporto.com",
+    "title": "CEO",
+    "department": "Executive",
+    "supervisor_name_seed": null,
+    "authority_level": 4,
+    "authority_notes": "Final company authority on strategy, revenue outcomes, customer commitments, and resource allocation.",
+    "status": "active"
+  },
+  {
+    "id": "seed-veton-krasniqi",
+    "name": "Veton Krasniqi",
+    "email": "v.krasniqi@apporto.com",
+    "title": "AI Product Owner",
+    "department": "Product",
+    "supervisor_name_seed": "Antony Awaida",
+    "authority_level": 3,
+    "authority_notes": "Domain owner for AI Suite product strategy, product truth, roadmap alignment, and sales/product feedback loops.",
+    "status": "active"
+  },
+  {
+    "id": "seed-michael-smith",
+    "name": "Michael Smith",
+    "email": "msmith@apporto.com",
+    "title": "Director of Marketing",
+    "department": "Marketing",
+    "supervisor_name_seed": "Unknown",
+    "authority_level": 4,
+    "authority_notes": "Leadership/high-trust source for messaging, positioning, case studies, and sales narrative. Product/pricing conflicts still require source trace and audit.",
+    "status": "active"
+  },
+  {
+    "id": "seed-brian-gray",
+    "name": "Brian Gray",
+    "email": "brian@apporto.com",
+    "title": "Chief Engineering Officer",
+    "department": "Engineering",
+    "supervisor_name_seed": "Unknown",
+    "authority_level": 4,
+    "authority_notes": "Leadership/high-trust source for engineering feasibility, delivery capacity, technical readiness, and release risk.",
+    "status": "active"
+  },
+  {
+    "id": "seed-phil-spitze",
+    "name": "Phil Spitze",
+    "email": "p.spitze@apporto.com",
+    "title": "VP Sales / Solutions Architect",
+    "department": "Sales",
+    "supervisor_name_seed": "Unknown",
+    "authority_level": 3,
+    "authority_notes": "High-trust source for sales positioning, solution alignment, buyer objections, and technical sales context.",
+    "status": "active"
+  },
+  {
+    "id": "seed-austin-shelp",
+    "name": "Austin Shelp",
+    "email": "a.shelp@apporto.com",
+    "title": "Account Executive",
+    "department": "Sales",
+    "supervisor_name_seed": "Unknown",
+    "authority_level": 2,
+    "authority_notes": "Standard sales user. Customer notes, deal feedback, and objections can create proposed updates.",
+    "status": "active"
+  },
+  {
+    "id": "seed-tony-dunckel",
+    "name": "Tony Dunckel",
+    "email": null,
+    "title": "Product Owner, VDI / DaaS",
+    "department": "Product",
+    "supervisor_name_seed": "Brian Gray",
+    "authority_level": 3,
+    "authority_notes": "Domain owner for VDI/DaaS roadmap, customer migrations, and rollout execution.",
+    "status": "active"
+  },
+  {
+    "id": "seed-dallin-hutchison",
+    "name": "Dallin Hutchison",
+    "email": "d.hutchison@apporto.com",
+    "title": "Lead Engineer / Release Manager",
+    "department": "Engineering",
+    "supervisor_name_seed": "Unknown",
+    "authority_level": 3,
+    "authority_notes": "High-trust source for implementation approach, release sequencing, LMS integrations, and engineering readiness.",
+    "status": "active"
+  },
+  {
+    "id": "seed-suleman-ashfaq",
+    "name": "Suleman Ashfaq",
+    "email": null,
+    "title": "AI Engineer",
+    "department": "Engineering",
+    "supervisor_name_seed": "Unknown",
+    "authority_level": 3,
+    "authority_notes": "High-trust source for AI systems, model integration, RAG/LLM architecture, cost/latency tradeoffs, and technical AI data.",
+    "status": "active"
+  },
+  {
+    "id": "seed-tusha-pavuluri",
+    "name": "Tusha Pavuluri",
+    "email": null,
+    "title": "Lead QA Engineer",
+    "department": "QA",
+    "supervisor_name_seed": "Unknown",
+    "authority_level": 3,
+    "authority_notes": "High-trust source for QA strategy, release gating, test coverage, and release readiness.",
+    "status": "active"
+  },
+  {
+    "id": "seed-domonic-vale",
+    "name": "Domonic Vale",
+    "email": null,
+    "title": "Competitive Analyst",
+    "department": "Competitive",
+    "supervisor_name_seed": "Unknown",
+    "authority_level": 3,
+    "authority_notes": "High-trust source for competitive data, market pressure, competitor positioning, and battlecard intelligence.",
+    "status": "active"
+  }
+]
+
+Optional reference records, not active seed rows
+These people appear in stakeholder context but should not be seeded until email/manager/title details are confirmed or the app needs them:
+- Daniel Hutchison - Infrastructure / HubSpot / MCP
+- Sergii Vinnikov - Infrastructure / Migration Lead
+- Himanshu Pachauri - LMS integrations
+- Colby Lyman - PowerGrader UX / rubric generation
+- Alex Millett - annotations, load testing, DOCX
+- AJ Jamshad Ali - PowerGrader
+- Kanzal Qalandri - PowerGrader
+- Nizam Elahi - AI guardrails backend
+- Akbar Shah - TrustEd playback, auth/security
+- Waleed Ahmed - AI backend
+- Rohit Kumar - engineering support
+- Tanner Sims - statistical modeling
+- Juston Dias-Kurnik - UI/UX design
+- Aditya Chebrolu - QA engineer
+- West Willmore - Account Executive
+- Davis Rogers - Account Executive
+- Dru Jones - Account Executive
+- Dave Trygar - Account Executive
+- James Richards - On-Prem / Infrastructure knowledge source
+
+Seed table: authority_rules
+
+[
+  {
+    "authority_level": 1,
+    "label": "Low / new or unknown employee",
+    "conflict_behavior": "block_with_supervisor_escalation",
+    "can_apply_updates": false,
+    "requires_confirmation": true
+  },
+  {
+    "authority_level": 2,
+    "label": "Standard sales/product user",
+    "conflict_behavior": "create_proposed_update",
+    "can_apply_updates": false,
+    "requires_confirmation": true
+  },
+  {
+    "authority_level": 3,
+    "label": "Manager / domain owner",
+    "conflict_behavior": "deep_analysis_strong_proposal",
+    "can_apply_updates": false,
+    "requires_confirmation": true
+  },
+  {
+    "authority_level": 4,
+    "label": "Executive / company leadership",
+    "conflict_behavior": "deferential_analysis_confirmation_gated_override",
+    "can_apply_updates": true,
+    "requires_confirmation": true
+  }
+]
+
+Implementation rule
+If a user's authority level is unknown, treat them as level 1 until their role and supervisor are confirmed.

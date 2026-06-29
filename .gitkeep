@@ -1,0 +1,1 @@
+window.electronAPI.listBots().then(b=>{document.title='CODEX_TEST_'+(b.some(x=>x.name==='Lex Executive')?'LEX_OK':'NO_LEX')+'_'+b.length}).catch(e=>{document.title='CODEX_TEST_ERR_'+String(e).slice(0,30)})

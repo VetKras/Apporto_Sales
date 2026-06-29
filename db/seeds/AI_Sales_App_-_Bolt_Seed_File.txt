@@ -1,0 +1,483 @@
+AI Sales App - Bolt Seed File
+Single build handoff for Bolt
+
+==================================================
+SYSTEM PURPOSE
+==================================================
+
+Build Apporto Sales: a web-based sales intelligence, pricing, product, and competitive analysis app for the Apporto AI Suite.
+
+V1 sellable products:
+- CoTutor
+- PowerGrader
+- TrustEd
+- ExamSpace
+
+Single user-facing assistant:
+- Portia
+
+Portia helps sales, sales engineering, sales leadership, marketing, customer success, and product-facing teams:
+- answer product questions
+- configure deals
+- generate quotes
+- create customer-facing proposals
+- create internal deal strategy
+- compare competitors
+- extract feedback from uploads/transcripts/notes
+- propose source-data updates under authority rules
+
+Portia is assistant only in V1. Do not seed Portia as a sellable product.
+
+==================================================
+TECH STACK
+==================================================
+
+Use:
+- Next.js App Router
+- TypeScript
+- Tailwind CSS
+- shadcn/ui
+- Supabase Postgres/Auth/Storage
+- pgvector for knowledge retrieval
+- Vercel AI SDK
+- Anthropic as primary AI provider
+
+Rules:
+- Web app only.
+- Start greenfield.
+- Reuse PO app formulas, validators, and patterns only where they reduce risk.
+- Do not copy Electron IPC, preload APIs, local filesystem writes, AI_Core direct writes, OneDrive/Google Drive source-of-truth behavior, or desktop assumptions.
+- Supabase is source of truth.
+
+==================================================
+CORE UX LAYOUT
+==================================================
+
+Main screen is the working app, not a marketing landing page.
+
+Layout:
+- Left panel: deal, product, pricing, and config controls.
+- Center panel: editable shared output workspace.
+- Right panel: Portia chat and source/evidence trace.
+
+Portia and the human can both update the center output.
+
+Output modes:
+- Pricing proposal
+- Quote summary
+- Competitive battlecard
+- Product brief
+- Objection handling script
+- Deal strategy memo
+- Customer-facing version
+- Internal-only version
+
+==================================================
+PORTIA ASSISTANT RULES
+==================================================
+
+Portia never invents pricing math.
+
+Portia must use deterministic quote engine outputs and database records:
+- pricing_config_versions
+- pricing_models
+- deal_inputs
+- quote_lines
+- calculated quote totals
+
+Portia labels serious claims as:
+- confirmed source-of-truth
+- user-provided claim
+- inferred recommendation
+- data gap
+- internal-only
+
+Customer-facing outputs:
+- no COGS
+- no margin
+- no internal approval logic
+- no hidden TCO assumptions
+- no internal doubts
+
+Internal outputs:
+- include source trace
+- include config version
+- include quote calculation version
+- include margin/cost assumptions when available
+- include approval level
+- include confidence and data gaps
+
+Competitive rules:
+- never fabricate competitor claims
+- mark weak evidence as [data gap]
+- separate competitor claim, customer-observed signal, Apporto confirmed capability, and Portia inference
+
+==================================================
+AUTHORITY MODEL
+==================================================
+
+Level 1: Low / new or unknown employee
+- Cannot overwrite system truth.
+- If data conflicts with Apporto truth, block immediately.
+- Return exact conflict and supervisor escalation message.
+
+Level 2: Standard sales/product user
+- Creates proposed updates.
+- Cannot directly overwrite system truth.
+
+Level 3: Manager / domain owner
+- Performs deeper analysis.
+- Creates strong proposed updates with evidence and confidence.
+
+Level 4: Executive / company leadership
+- Highest-trust source.
+- Still no silent overwrites.
+- Conflicting data requires deferential analysis, confirmation prompt, then audited override if confirmed.
+
+No silent overwrites.
+
+==================================================
+INITIAL USER SEED DATA
+==================================================
+
+Seed only verified core users. Unknown manager stays unknown.
+
+[
+  {
+    "id": "seed-antony-awaida",
+    "name": "Antony Awaida",
+    "email": "antony@apporto.com",
+    "title": "CEO",
+    "department": "Executive",
+    "supervisor_name_seed": null,
+    "authority_level": 4
+  },
+  {
+    "id": "seed-veton-krasniqi",
+    "name": "Veton Krasniqi",
+    "email": "v.krasniqi@apporto.com",
+    "title": "AI Product Owner",
+    "department": "Product",
+    "supervisor_name_seed": "Antony Awaida",
+    "authority_level": 3
+  },
+  {
+    "id": "seed-michael-smith",
+    "name": "Michael Smith",
+    "email": "msmith@apporto.com",
+    "title": "Director of Marketing",
+    "department": "Marketing",
+    "supervisor_name_seed": "Unknown",
+    "authority_level": 4
+  },
+  {
+    "id": "seed-brian-gray",
+    "name": "Brian Gray",
+    "email": "brian@apporto.com",
+    "title": "Chief Engineering Officer",
+    "department": "Engineering",
+    "supervisor_name_seed": "Unknown",
+    "authority_level": 4
+  },
+  {
+    "id": "seed-phil-spitze",
+    "name": "Phil Spitze",
+    "email": "p.spitze@apporto.com",
+    "title": "VP Sales / Solutions Architect",
+    "department": "Sales",
+    "supervisor_name_seed": "Unknown",
+    "authority_level": 3
+  },
+  {
+    "id": "seed-austin-shelp",
+    "name": "Austin Shelp",
+    "email": "a.shelp@apporto.com",
+    "title": "Account Executive",
+    "department": "Sales",
+    "supervisor_name_seed": "Unknown",
+    "authority_level": 2
+  },
+  {
+    "id": "seed-tony-dunckel",
+    "name": "Tony Dunckel",
+    "email": null,
+    "title": "Product Owner, VDI / DaaS",
+    "department": "Product",
+    "supervisor_name_seed": "Brian Gray",
+    "authority_level": 3
+  },
+  {
+    "id": "seed-dallin-hutchison",
+    "name": "Dallin Hutchison",
+    "email": "d.hutchison@apporto.com",
+    "title": "Lead Engineer / Release Manager",
+    "department": "Engineering",
+    "supervisor_name_seed": "Unknown",
+    "authority_level": 3
+  },
+  {
+    "id": "seed-suleman-ashfaq",
+    "name": "Suleman Ashfaq",
+    "email": null,
+    "title": "AI Engineer",
+    "department": "Engineering",
+    "supervisor_name_seed": "Unknown",
+    "authority_level": 3
+  },
+  {
+    "id": "seed-tusha-pavuluri",
+    "name": "Tusha Pavuluri",
+    "email": null,
+    "title": "Lead QA Engineer",
+    "department": "QA",
+    "supervisor_name_seed": "Unknown",
+    "authority_level": 3
+  },
+  {
+    "id": "seed-domonic-vale",
+    "name": "Domonic Vale",
+    "email": null,
+    "title": "Competitive Analyst",
+    "department": "Competitive",
+    "supervisor_name_seed": "Unknown",
+    "authority_level": 3
+  }
+]
+
+==================================================
+PRODUCT SEED DATA
+==================================================
+
+Seed products:
+
+CoTutor:
+- slug: cotutor
+- category: AI learning and authoring assistant
+- positioning: Assignment-aware, rubric-aligned, faculty-guardrailed AI learning assistant.
+
+PowerGrader:
+- slug: powergrader
+- category: AI-assisted grading engine
+- positioning: Rubric-aligned AI grading support with faculty final authority.
+
+TrustEd:
+- slug: trusted
+- category: Academic integrity and authorship evidence
+- positioning: Writing-process and authorship evidence for faculty review, not automatic accusation.
+
+ExamSpace:
+- slug: examspace
+- category: Controlled VDI assessment environment
+- positioning: Infrastructure-level controlled assessment environment, not browser-only lockdown and not AI proctoring.
+
+Do not seed Portia as a product.
+
+==================================================
+PRICING ENGINE REQUIREMENTS
+==================================================
+
+Implement pricing engine before AI proposal generation.
+
+AI must consume calculated quote objects. AI must not calculate totals itself.
+
+All pricing values:
+- stored in pricing_config_versions and pricing_models
+- configurable
+- versioned
+- source-traced
+- reproducible on quote_lines
+
+Active pricing config seed:
+
+Config version:
+- version_name: v1-active-defaults
+- notes: Active V1 configurable defaults from current Apporto Sales planning and PO app config.
+- is_active: true
+
+CoTutor active configurable defaults:
+- Departmental/Premium: 20 per student/year
+- Campus/Standard: 15 per student/year
+- Platform/Entry: 10 per student/year
+
+Important:
+- Old CoTutor 80/65/50 workbook values are historical/reference context.
+- Do not use 80/65/50 as active V1 defaults unless a newer active pricing_config_version explicitly reactivates them.
+
+PowerGrader initial defaults:
+- per student: 15 per student/year
+- per faculty: 120 per faculty/year
+- per submission: 4 per submission
+
+TrustEd initial defaults:
+- standalone: 50 per student/year
+- bundle add-on: 40 per student/year
+
+ExamSpace initial defaults:
+- medium: 11 per seat-day
+- large: 16 per seat-day
+- gpu: 23 per seat-day
+- platform fee: 1200/year for new customers
+- setup fee: 2500 one-time for new customers
+
+Quote formula:
+- line.list_price = quantity * unit_price
+- line.discount_amount = allocated discount for that line
+- line.net_price = list_price - discount_amount
+- line.total_cost = quantity * unit_cost, if unit_cost exists
+- list_total = sum(line.list_price)
+- discount_amount = list_total * (discount_percent / 100)
+- final_total = list_total - discount_amount
+- cost_total = sum(line.total_cost)
+- gross_margin_percent = final_total > 0 ? ((final_total - cost_total) / final_total) * 100 : null
+- per_student_price = student_count > 0 ? final_total / student_count : null
+
+Bundle suggestion defaults:
+- 2 products: 10%
+- 3 products: 15%
+- 4 products: 20%
+- Do not auto-apply bundle discount unless user clicks Apply.
+
+Approval matrix:
+- 0-5%: Sales
+- >5-10%: Manager
+- >10-15%: VP
+- >15%: CFO/Executive
+
+Course assumptions:
+- estimated_assignments_per_year = course_sections * 6
+- estimated_exam_days_per_year = course_sections * 2
+
+TCO planning:
+- low_tco = final_total / 0.70
+- high_tco = final_total / 0.60
+- TCO assumptions are internal-only unless explicitly approved for customer-facing output.
+
+==================================================
+DATABASE TABLES
+==================================================
+
+Implement these tables:
+- profiles
+- authority_rules
+- products
+- product_facts
+- market_benchmarks
+- pricing_config_versions
+- pricing_models
+- pricing_validation_results
+- deals
+- deal_inputs
+- quote_lines
+- quote_outputs
+- competitors
+- competitive_matrix
+- source_documents
+- knowledge_chunks
+- feedback_signals
+- portia_sessions
+- portia_messages
+- ai_events
+- proposed_updates
+
+Schema invariants:
+- pricing_models references pricing_config_versions
+- quote_lines stores config_version_id
+- quote_outputs stores source_trace
+- knowledge_chunks supports vector retrieval
+- proposed_updates handles conflicts and review
+- ai_events logs generation, ingestion, conflict, confirmation, proposed_update, applied_update
+
+==================================================
+KNOWLEDGE INGESTION
+==================================================
+
+Supported uploads:
+- CSV
+- JSON
+- TXT
+- Markdown
+- DOCX
+- PDF
+- call transcripts
+- meeting notes
+
+Ingestion flow:
+1. upload file
+2. extract text
+3. classify content
+4. identify product, pricing, competitor, customer, objection, and deal signals
+5. create source_document
+6. chunk and embed content
+7. compare against existing truth
+8. apply authority conflict behavior
+9. create proposed_updates when needed
+
+==================================================
+BUILD ORDER
+==================================================
+
+1. Project shell, auth, Supabase connection, layout, and navigation.
+2. Schema migrations and seed V1 products.
+3. Seed verified profiles and authority rules.
+4. Pricing config tables and active v1 pricing seed.
+5. Deterministic pricing engine with tests.
+6. Pricing/quote workspace with editable center output.
+7. Portia chat with mocked response, then server-side streaming AI.
+8. Product knowledge pages and product Q&A.
+9. Competitive matrix tables and UI.
+10. Upload ingestion and conflict/proposed-update review.
+11. Feedback/lost-deal intelligence capture.
+12. Export Markdown/PDF/DOCX only after core workflow works.
+
+==================================================
+TESTS
+==================================================
+
+Pricing tests:
+- CoTutor 20/15/10 active defaults load from DB config.
+- Old 80/65/50 values are not active defaults.
+- PowerGrader per student, per faculty, and per submission calculate correctly.
+- TrustEd standalone and bundle calculate correctly.
+- ExamSpace seat-day pricing calculates correctly.
+- ExamSpace new customer platform fee applies.
+- ExamSpace existing customer platform fee is waived.
+- Discount amount, final total, margin, and per-student price calculate correctly.
+- Bundle suggestion appears at 2, 3, and 4 selected products.
+- Approval level changes at discount boundaries.
+- TCO low/high range calculates from final_total.
+
+Authority tests:
+- Level 1 conflicting upload is blocked with supervisor escalation.
+- Level 2 conflict creates proposed update.
+- Level 3 conflict creates strong proposal with deeper analysis.
+- Level 4 conflict asks confirmation and applies only with audit after confirmation.
+- No silent overwrites.
+
+Portia tests:
+- Portia refuses to invent missing quote totals.
+- Portia uses quote_lines and active config version for pricing proposal.
+- Customer-facing output hides COGS and margin.
+- Internal output includes source trace and config version.
+- Competitive output marks weak claims as [data gap].
+
+UI acceptance:
+- User can configure a deal, generate a quote, edit center output, and save.
+- User can upload notes and Portia extracts objections/follow-ups.
+- User can generate a battlecard for a V1 product.
+- Generated output shows source trace and confidence.
+
+==================================================
+NON-NEGOTIABLES
+==================================================
+
+- Start greenfield.
+- Reuse PO app formulas/validators/patterns where they reduce risk.
+- Do not copy Electron/local-app architecture.
+- Pricing is deterministic and database-driven.
+- AI never invents pricing totals.
+- Every pricing value is configurable, versioned, and source-traced.
+- No fake users.
+- No Portia product seed.
+- No silent overwrites.
+- Executive overrides require confirmation and audit.
+- Low-authority conflicts are blocked with supervisor escalation.

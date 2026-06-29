@@ -1,0 +1,338 @@
+import { useState } from 'react'
+import { Save, Copy, Lock, Globe, AlertTriangle, FileText } from 'lucide-react'
+import { cn, formatCurrency, formatPercent, approvalColor } from '@/lib/utils'
+import { COTUTOR_MODELS, type QuoteResult } from '@/lib/pricing-engine'
+import {
+  ProposalTemplate,
+  generateProposalText,
+  type ProposalSections,
+  type ProposalSectionKey,
+} from './ProposalTemplate'
+import type { Database } from '@/types/database'
+
+type Deal = Database['public']['Tables']['deals']['Row']
+type Profile = Database['public']['Tables']['profiles']['Row']
+
+interface Props {
+  deal: Deal
+  quoteResult: QuoteResult | null
+  mode: 'quote' | 'proposal' | 'battlecard' | 'strategy'
+  centerContent: string
+  onCenterContentChange: (c: string) => void
+  onSaveOutput: (content: string, type: string, classification: 'customer_facing' | 'internal_only' | 'mixed_draft') => void
+  profile: Profile | null
+  proposalSections: ProposalSections
+  onProposalSectionChange: (key: ProposalSectionKey, value: string) => void
+}
+
+function WarningBadge({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="flex items-start gap-1.5 text-xs text-amber-700 bg-amber-50 rounded-lg px-2.5 py-2 border border-amber-200">
+      <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0 mt-0.5" />
+      <span>{children}</span>
+    </div>
+  )
+}
+
+export function QuoteOutputPanel({ deal, quoteResult, mode, centerContent, onCenterContentChange, onSaveOutput, profile, proposalSections, onProposalSectionChange }: Props) {
+  const [classification, setClassification] = useState<'customer_facing' | 'internal_only' | 'mixed_draft'>('mixed_draft')
+  const [saving, setSaving] = useState(false)
+
+  function getProposalText(): string {
+    if (!quoteResult) return ''
+    return generateProposalText(deal, quoteResult, proposalSections, profile)
+  }
+
+  async function handleSave() {
+    setSaving(true)
+    const content = mode === 'proposal' ? getProposalText() : centerContent
+    if (content) await onSaveOutput(content, mode, classification)
+    setSaving(false)
+  }
+
+  function handleCopy() {
+    const content = mode === 'proposal' ? getProposalText() : centerContent
+    if (content) navigator.clipboard.writeText(content)
+  }
+
+  // ── Quote view ───────────────────────────────────────────────────────────────
+  if (mode === 'quote') {
+    return (
+      <div className="p-6 space-y-6">
+        {!quoteResult ? (
+          <div className="flex flex-col items-center justify-center py-16 text-neutral-400">
+            <div className="w-16 h-16 rounded-2xl bg-neutral-100 flex items-center justify-center mb-4">
+              <span className="text-3xl">📊</span>
+            </div>
+            <p className="text-sm font-medium text-neutral-600 mb-1">No quote calculated yet</p>
+            <p className="text-xs text-neutral-400">Select products, enter deal inputs, then click Calculate.</p>
+          </div>
+        ) : (
+          <>
+            {/* Config version trace */}
+            <div className="flex items-center gap-2 text-xs text-neutral-500 bg-neutral-50 rounded-lg px-3 py-2 border border-neutral-200">
+              <span className="font-medium">Config:</span> {quoteResult.config_version_name}
+              <span className="ml-2 text-neutral-400">· calculated {new Date().toLocaleString()}</span>
+            </div>
+
+            {/* Quote lines table */}
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-neutral-200">
+                    <th className="text-left py-2 pr-4 text-xs font-semibold text-neutral-500 uppercase tracking-wide">Product</th>
+                    <th className="text-left py-2 pr-4 text-xs font-semibold text-neutral-500 uppercase tracking-wide">Tier</th>
+                    <th className="text-right py-2 pr-4 text-xs font-semibold text-neutral-500 uppercase tracking-wide">Qty</th>
+                    <th className="text-right py-2 pr-4 text-xs font-semibold text-neutral-500 uppercase tracking-wide">Unit $</th>
+                    <th className="text-right py-2 pr-4 text-xs font-semibold text-neutral-500 uppercase tracking-wide">List</th>
+                    <th className="text-right py-2 text-xs font-semibold text-neutral-500 uppercase tracking-wide">Net</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-neutral-100">
+                  {(quoteResult.lines ?? []).map((line, i) => (
+                    <tr key={i} className="hover:bg-neutral-50">
+                      <td className="py-2.5 pr-4 font-medium text-neutral-900">{line.product_name}</td>
+                      <td className="py-2.5 pr-4 text-neutral-600 text-xs">{line.tier_label}</td>
+                      <td className="py-2.5 pr-4 text-right text-neutral-600">{line.quantity.toLocaleString()} {line.unit.split('/')[0]}</td>
+                      <td className="py-2.5 pr-4 text-right text-neutral-600">{formatCurrency(line.unit_price)}</td>
+                      <td className="py-2.5 pr-4 text-right text-neutral-700">{formatCurrency(line.list_price)}</td>
+                      <td className="py-2.5 text-right font-medium text-neutral-900">{formatCurrency(line.net_price)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              {(quoteResult.assumptions.shared_student_cohort_products?.length ?? 0) > 1 && (
+                <p className="text-xs text-blue-600 bg-blue-50 border border-blue-200 rounded-lg px-3 py-2 mt-2">
+                  Shared cohort: {quoteResult.inputs_snapshot.student_count.toLocaleString()} students are billed across {quoteResult.assumptions.shared_student_cohort_products.join(', ')} — the same population, not additive headcounts.
+                </p>
+              )}
+            </div>
+
+            {/* Totals */}
+            <div className="border-t border-neutral-200 pt-4 space-y-2">
+              <div className="flex justify-between text-sm">
+                <span className="text-neutral-500">List total</span>
+                <span className="text-neutral-700">{formatCurrency(quoteResult.list_total)}</span>
+              </div>
+              {quoteResult.discount_percent > 0 && (
+                <div className="flex justify-between text-sm">
+                  <span className="text-neutral-500">Discount ({quoteResult.discount_percent}%)</span>
+                  <span className="text-red-600">-{formatCurrency(quoteResult.discount_amount)}</span>
+                </div>
+              )}
+              <div className="flex justify-between text-base font-semibold border-t border-neutral-200 pt-2 mt-2">
+                <span className="text-neutral-900">Total ARR</span>
+                <span className="text-brand-700">{formatCurrency(quoteResult.final_total)}</span>
+              </div>
+
+              {quoteResult.per_student_price != null && (
+                <div className="flex justify-between text-sm text-neutral-500">
+                  <span>
+                    All-in per student
+                    {quoteResult.assumptions.shared_student_cohort_products?.length > 1 && (
+                      <span className="text-xs text-neutral-400"> (all products, same {quoteResult.inputs_snapshot.student_count.toLocaleString()} students)</span>
+                    )}
+                  </span>
+                  <span>{formatCurrency(quoteResult.per_student_price)}/student/yr</span>
+                </div>
+              )}
+            </div>
+
+            {/* Internal fields */}
+            <div className="badge-internal inline-block mb-2">Internal only</div>
+            <div className="grid grid-cols-2 gap-3 p-4 bg-amber-50 rounded-xl border border-amber-200 text-sm">
+              <div>
+                <div className="label-base">Approval required</div>
+                <div className={cn('font-semibold', approvalColor(quoteResult.approval_level))}>
+                  {quoteResult.approval_level}
+                </div>
+              </div>
+              {quoteResult.gross_margin_percent != null && (
+                <div>
+                  <div className="label-base">Gross margin</div>
+                  <div className="font-semibold text-neutral-900">{formatPercent(quoteResult.gross_margin_percent)}</div>
+                </div>
+              )}
+              {quoteResult.tco_low != null && (
+                <div className="col-span-2">
+                  <div className="label-base">TCO range estimate (internal)</div>
+                  <div className="text-neutral-700">{formatCurrency(quoteResult.tco_low)} – {formatCurrency(quoteResult.tco_high ?? 0)}</div>
+                </div>
+              )}
+              {quoteResult.bundle_suggestion && !quoteResult.bundle_suggestion.already_applied && (
+                <div className="col-span-2 text-xs text-emerald-700 bg-emerald-50 rounded-lg px-3 py-2 border border-emerald-200">
+                  Bundle suggestion: {quoteResult.bundle_suggestion.product_count} products qualify for {quoteResult.bundle_suggestion.suggested_discount_percent}% discount (not yet applied).
+                </div>
+              )}
+            </div>
+
+            {/* Course assumptions + deal term notes */}
+            {quoteResult.assumptions && (
+              <div className="space-y-2">
+                <div className="text-xs font-semibold text-neutral-500 uppercase tracking-wide">Assumptions &amp; notes</div>
+                <div className="text-xs text-neutral-500 space-y-1 p-3 bg-neutral-50 rounded-lg border border-neutral-200">
+                  {(quoteResult.assumptions.shared_student_cohort_products?.length ?? 0) > 1 && (
+                    <div className="text-blue-700 font-medium">
+                      Student cohort: {quoteResult.inputs_snapshot.student_count.toLocaleString()} students shared across {quoteResult.assumptions.shared_student_cohort_products.join(', ')} — headcounts are not additive.
+                    </div>
+                  )}
+                  {quoteResult.assumptions.estimated_assignments_per_year != null && (
+                    <div>Est. assignments/year (sections × 6): {quoteResult.assumptions.estimated_assignments_per_year.toLocaleString()}</div>
+                  )}
+                  {quoteResult.assumptions.estimated_exam_days_per_year != null && (
+                    <div>Est. exam days/year (sections × 2): {quoteResult.assumptions.estimated_exam_days_per_year.toLocaleString()}</div>
+                  )}
+                  <div>Contract term: {quoteResult.assumptions.contract_term}</div>
+                  <div>TCO multiplier: {quoteResult.assumptions.tco_multiplier_used}×</div>
+                  {quoteResult.assumptions.true_up_clause && (
+                    <div className="text-emerald-600">True-up/down clause included — flag for Finance review.</div>
+                  )}
+                  {(quoteResult.assumptions.compliance_requirements?.length ?? 0) > 0 && (
+                    <div>Compliance: {quoteResult.assumptions.compliance_requirements.join(', ')}</div>
+                  )}
+                  {quoteResult.assumptions.video_playback_surcharge_per_student != null && (
+                    <div className="text-blue-600">TrustEd video playback included (+${quoteResult.assumptions.video_playback_surcharge_per_student}/student/yr — verify in approved pricing sheet).</div>
+                  )}
+                </div>
+
+                {(quoteResult.assumptions.ai_model_cogs_warning || quoteResult.assumptions.pages_submission_warning || quoteResult.assumptions.lms_integration_risk) && (
+                  <div className="space-y-1.5">
+                    {quoteResult.assumptions.ai_model_cogs_warning && (() => {
+                      const modelDef = COTUTOR_MODELS.find((m) => m.id === quoteResult.assumptions.cotutor_ai_model)
+                      const tier = quoteResult.assumptions.cotutor_cogs_tier
+                      if (!modelDef) return null
+                      const ratio = (modelDef.inputPricePerMTok / 0.20).toFixed(1)
+                      if (tier === 'moderate') return (
+                        <WarningBadge>CoTutor: {modelDef.label} (${modelDef.inputPricePerMTok}/M in) — {ratio}× GPT-5.4 Nano baseline COGS. Verify gross margin before sharing with customer.</WarningBadge>
+                      )
+                      if (tier === 'high') return (
+                        <WarningBadge>CoTutor: {modelDef.label} (${modelDef.inputPricePerMTok}/M in) — {ratio}× baseline COGS. Margin review required before quoting.</WarningBadge>
+                      )
+                      if (tier === 'premium') return (
+                        <WarningBadge>CoTutor: {modelDef.label} (${modelDef.inputPricePerMTok}/M in) — {ratio}× baseline COGS. Requires explicit leadership approval before quoting.</WarningBadge>
+                      )
+                      return null
+                    })()}
+                    {quoteResult.assumptions.pages_submission_warning && (
+                      <WarningBadge>PowerGrader: 6-page submissions — ~5× cost swing vs 1-page. Always confirm page count with customer.</WarningBadge>
+                    )}
+                    {quoteResult.assumptions.lms_integration_risk && (
+                      <WarningBadge>{quoteResult.assumptions.lms_integration_risk}</WarningBadge>
+                    )}
+                  </div>
+                )}
+
+                <p className="text-xs text-neutral-400 italic pt-1">
+                  All figures are reference estimates. Verify against the approved pricing workbook and obtain required discount approval before sharing with any customer.
+                </p>
+              </div>
+            )}
+          </>
+        )}
+      </div>
+    )
+  }
+
+  // ── Proposal view ────────────────────────────────────────────────────────────
+  if (mode === 'proposal') {
+    if (!quoteResult) {
+      return (
+        <div className="flex flex-col items-center justify-center py-20 text-neutral-400">
+          <div className="w-16 h-16 rounded-2xl bg-neutral-100 flex items-center justify-center mb-4">
+            <FileText className="w-7 h-7 text-neutral-300" />
+          </div>
+          <p className="text-sm font-semibold text-neutral-600 mb-2">No quote selected</p>
+          <p className="text-xs text-neutral-400 text-center max-w-xs leading-relaxed">
+            Calculate a quote or load a saved quote first. The proposal template will auto-populate with customer details, product descriptions, and pricing.
+          </p>
+        </div>
+      )
+    }
+
+    return (
+      <div className="flex flex-col h-full">
+        {/* Toolbar */}
+        <div className="flex items-center gap-2 px-4 py-2 border-b border-neutral-200 bg-neutral-50 flex-shrink-0">
+          <select
+            className="input-base w-auto py-1 text-xs"
+            value={classification}
+            onChange={(e) => setClassification(e.target.value as typeof classification)}
+          >
+            <option value="mixed_draft">Draft (mixed)</option>
+            <option value="customer_facing">Customer-facing</option>
+            <option value="internal_only">Internal only</option>
+          </select>
+          {classification === 'internal_only' && (
+            <span className="badge-internal flex items-center gap-1"><Lock className="w-3 h-3" />Internal</span>
+          )}
+          {classification === 'customer_facing' && (
+            <span className="badge-customer flex items-center gap-1"><Globe className="w-3 h-3" />Customer</span>
+          )}
+          <div className="ml-auto flex gap-2">
+            <button className="btn-ghost py-1 text-xs" onClick={handleCopy}>
+              <Copy className="w-3.5 h-3.5" /> Copy as text
+            </button>
+            <button className="btn-secondary py-1.5 text-xs" onClick={handleSave} disabled={saving}>
+              <Save className="w-3.5 h-3.5" /> {saving ? 'Saving…' : 'Save'}
+            </button>
+          </div>
+        </div>
+
+        {/* Document */}
+        <div className="flex-1 overflow-y-auto px-10 py-10 bg-white">
+          <ProposalTemplate
+            deal={deal}
+            quoteResult={quoteResult}
+            profile={profile}
+            sections={proposalSections}
+            onSectionChange={onProposalSectionChange}
+          />
+        </div>
+      </div>
+    )
+  }
+
+  // ── Battlecard / Strategy — editable textarea ─────────────────────────────
+  return (
+    <div className="flex flex-col h-full">
+      <div className="flex items-center gap-2 px-4 py-2 border-b border-neutral-200 bg-neutral-50 flex-shrink-0">
+        <select
+          className="input-base w-auto py-1 text-xs"
+          value={classification}
+          onChange={(e) => setClassification(e.target.value as typeof classification)}
+        >
+          <option value="mixed_draft">Draft (mixed)</option>
+          <option value="customer_facing">Customer-facing</option>
+          <option value="internal_only">Internal only</option>
+        </select>
+        {classification === 'internal_only' && (
+          <span className="badge-internal flex items-center gap-1"><Lock className="w-3 h-3" />Internal</span>
+        )}
+        {classification === 'customer_facing' && (
+          <span className="badge-customer flex items-center gap-1"><Globe className="w-3 h-3" />Customer</span>
+        )}
+        <div className="ml-auto flex gap-2">
+          <button
+            className="btn-ghost py-1 text-xs"
+            onClick={() => { navigator.clipboard.writeText(centerContent) }}
+            disabled={!centerContent}
+          >
+            <Copy className="w-3.5 h-3.5" /> Copy
+          </button>
+          <button className="btn-secondary py-1.5 text-xs" onClick={handleSave} disabled={saving || !centerContent}>
+            <Save className="w-3.5 h-3.5" /> {saving ? 'Saving…' : 'Save'}
+          </button>
+        </div>
+      </div>
+      <textarea
+        className="flex-1 p-4 text-sm text-neutral-800 resize-none focus:outline-none bg-white font-mono leading-relaxed"
+        placeholder={
+          mode === 'battlecard' ? 'Portia will generate a competitive battlecard here…' :
+          'Deal strategy and internal notes…'
+        }
+        value={centerContent}
+        onChange={(e) => onCenterContentChange(e.target.value)}
+      />
+    </div>
+  )
+}

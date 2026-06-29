@@ -1,0 +1,262 @@
+AI Sales App - Product Definitions
+Bolt-ready seed reference
+
+Purpose
+This file defines the V1 sellable product catalog for Apporto Sales.
+
+Important scope rule
+Portia is not a V1 sellable product record in this app. Portia is the sales assistant and UI intelligence layer that helps users work with product, pricing, competitive, and deal data.
+
+V1 sellable products
+- CoTutor
+- PowerGrader
+- TrustEd
+- ExamSpace
+
+Source basis
+- I:/My Drive/Apporto/Knowledge/Products/CoTutor/cotutor_product.md
+- I:/My Drive/Apporto/Knowledge/Products/PowerGrader/powergrader_product.md
+- I:/My Drive/Apporto/Knowledge/Products/TrustEd/trusted_product.md
+- I:/My Drive/Apporto/Knowledge/Products/ExamSpace/examspace_product.md
+- I:/My Drive/Apporto/Knowledge/Marketing/*_knowledge.md
+- I:/My Drive/Apporto/Knowledge/Products/competitive_summary.md
+
+Product seed records
+
+==================================================
+PRODUCT: CoTutor
+==================================================
+
+id: seed-product-cotutor
+slug: cotutor
+name: CoTutor
+category: AI learning and authoring assistant
+status: active
+
+Positioning
+CoTutor is an assignment-aware, rubric-aligned, faculty-guardrailed AI learning and authoring assistant that supports students while they work.
+
+What it is
+CoTutor is not a general-purpose chatbot. It is a governed AI learning companion embedded in student workflows and scoped to assignment instructions, rubrics, and faculty-defined guardrails.
+
+Primary users
+- Students receiving guided support while writing or completing coursework
+- Faculty configuring assistance levels and teaching method
+- Teaching teams managing course-level AI behavior
+
+Buyer
+Institutions seeking responsible, governed AI adoption for learning support.
+
+Core capabilities
+- Assignment-aware AI assistance
+- Rubric-aligned guidance
+- Faculty-controlled guardrails
+- Configurable assistance levels
+- Teaching-method control such as Socratic, problem-based, or explanatory support
+- LMS integration
+- Microsoft Word add-in
+- Google Docs integration
+- Pre-submission review using PowerGrader review logic
+
+Relationship to other AI Suite products
+- Uses PowerGrader as the pre-submission review engine.
+- Reduces integrity risk upstream before TrustEd review is needed.
+- Complements ExamSpace by supporting learning outside controlled exam environments.
+
+Sales-safe claims
+- Assignment-aware, not generic AI chat.
+- Faculty decides how AI helps.
+- Designed for governed institutional AI adoption.
+- Supports learning, revision, and reasoning rather than default full-answer generation.
+
+Known risks / data gaps
+- Guardrail misconfiguration can create over-assistance.
+- Student expectations may be shaped by unrestricted consumer AI tools.
+- Google Docs integration is noted as hardening/in progress in product context.
+- Claims about measured outcomes should cite a specific pilot/source before customer use.
+
+Source files
+- Knowledge/Products/CoTutor/cotutor_product.md
+- Knowledge/Products/CoTutor/CoTutor Product Requirements Document 06-20.txt
+- Knowledge/Products/CoTutor/CoTutor Pricing, Packaging & Competitive Strategy 06-20.txt
+- Knowledge/Products/CoTutor/marketing.md
+- Knowledge/Products/CoTutor/research_guardrails.md
+
+==================================================
+PRODUCT: PowerGrader
+==================================================
+
+id: seed-product-powergrader
+slug: powergrader
+name: PowerGrader
+category: AI-assisted grading engine
+status: active
+
+Positioning
+PowerGrader is an AI-assisted grading engine that helps faculty grade faster while preserving instructor control, rubric fidelity, and academic judgment.
+
+What it is
+PowerGrader is an LMS-native grading workspace. It produces rubric-aligned draft scores and feedback for instructor review. It does not automate final grading decisions.
+
+Primary users
+- Faculty and instructors grading assignments at scale
+- Teaching assistants and instructional teams
+- Academic leadership monitoring grading consistency and efficiency
+
+Buyer
+Institutions seeking scalable grading support with clear AI governance.
+
+Core capabilities
+- Rubric-aligned draft grading
+- Criterion-level feedback
+- Instructor review/edit/approve workflow
+- Draft and publish states
+- LMS course, assignment, roster, and submission sync
+- Grade passback
+- Multi-format submission support
+- Direct escalation into TrustEd evidence views when integrity review is needed
+
+Relationship to other AI Suite products
+- Provides the review and feedback engine for CoTutor pre-submission review.
+- Integrates with TrustEd for integrity evidence review.
+- Complements ExamSpace by handling assessment grading after controlled exams.
+
+Sales-safe claims
+- AI-assisted grading that respects faculty control.
+- Faculty remains final authority.
+- Rubric-first workflow supports transparency and consistency.
+- Designed as decision support, not automated assessment.
+
+Known risks / data gaps
+- Canvas is operational; D2L and Moodle stabilization are noted as active/in progress.
+- Grading quality depends on rubric completeness and assignment structure.
+- Avoid absolute claims such as "eliminates grading time" unless a specific customer/pilot source supports it.
+
+Source files
+- Knowledge/Products/PowerGrader/powergrader_product.md
+- Knowledge/Products/PowerGrader/powergrader_change_log.md
+- Knowledge/Products/PowerGrader/roadmap.md
+- Knowledge/Products/PowerGrader_Product_Council_Dec_2025_Final.pptx
+
+==================================================
+PRODUCT: TrustEd
+==================================================
+
+id: seed-product-trusted
+slug: trusted
+name: TrustEd
+category: Academic integrity and authorship evidence
+status: active
+
+Positioning
+TrustEd is an authorship and academic integrity evidence platform that helps faculty understand how student work was created without making automatic accusations.
+
+What it is
+TrustEd analyzes writing process and behavioral signals to surface explainable authorship evidence for faculty review. It supports human judgment rather than replacing institutional policy.
+
+Primary users
+- Faculty evaluating writing authenticity
+- Instructors reviewing flagged submissions
+- Academic leadership
+- Integrity and compliance teams
+
+Buyer
+Institutions seeking transparent, defensible academic integrity tooling for the AI era.
+
+Core capabilities
+- Keystroke/process playback
+- Writing speed and revision pattern analysis
+- Copy/paste detection and classification
+- Writing style consistency analysis
+- Outlier and anomaly detection
+- Integrity evidence reports
+- Faculty review workflow
+
+Relationship to other AI Suite products
+- CoTutor supports responsible AI use upstream.
+- TrustEd verifies authenticity downstream.
+- PowerGrader can pivot into TrustEd evidence review.
+- ExamSpace handles controlled assessments; TrustEd focuses on authorship/process evidence.
+
+Sales-safe claims
+- Behavior-based and evidence-focused.
+- Designed for transparency, not black-box accusation.
+- Faculty makes all final determinations.
+- Helps reduce over-reliance on text-only AI detection.
+
+Known risks / data gaps
+- Faculty may misinterpret indicators as definitive judgments.
+- Must avoid language that implies automatic misconduct detection or penalties.
+- Customer-facing claims should emphasize evidence and review, not accusation.
+
+Source files
+- Knowledge/Products/TrustEd/trusted_product.md
+- Knowledge/Products/TrustEd/trusted_change_log.md
+- Knowledge/Products/TrustEd/TrustEd Product Requirements Docume 06-20.md
+- Knowledge/Products/TrustEd/marketing.md
+
+==================================================
+PRODUCT: ExamSpace
+==================================================
+
+id: seed-product-examspace
+slug: examspace
+name: ExamSpace
+category: Controlled VDI assessment environment
+status: active
+
+Positioning
+ExamSpace is a VDI-based controlled assessment environment that enforces application, system, and network policy at the infrastructure level.
+
+What it is
+ExamSpace delivers cloud-hosted virtual exam desktops through Apporto infrastructure. It is not browser-only lockdown and not AI proctoring. It supports restricted exams and tool-enabled assessments.
+
+Primary users
+- Students taking high-stakes or software-dependent assessments
+- Faculty administering exams
+- IT teams managing assessment environments
+- Academic leadership overseeing assessment integrity and equity
+
+Buyer
+Institutions seeking secure, flexible alternatives to browser lockdown tools and local lab constraints.
+
+Core capabilities
+- Full virtual desktop exam environment
+- Infrastructure-level application control
+- Admin-managed base exam desktops
+- Faculty clone/configure workflow
+- URL/network enforcement
+- LMS launch using LTI 1.3
+- Access to advanced software when allowed
+- Ability to disable, limit, or explicitly allow AI tools according to assessment design
+
+Relationship to other AI Suite products
+- Can enable or disable CoTutor according to assessment policy.
+- Provides controlled conditions before PowerGrader handles grading.
+- Complements TrustEd, which focuses on authorship/process evidence rather than environment enforcement.
+
+Sales-safe claims
+- Controls the full assessment environment, not just the browser.
+- Supports both restricted and authentic tool-enabled assessments.
+- Helps provide equitable access to required software through cloud desktops.
+- Enforces policy centrally at the virtual desktop level.
+
+Known risks / data gaps
+- Faculty misconfiguration of allowed tools can weaken assessment design.
+- Peak exam periods can increase support load.
+- High-concurrency reliability must be validated for large deployments.
+- Do not describe ExamSpace as AI proctoring or automated surveillance.
+
+Source files
+- Knowledge/Products/ExamSpace/examspace_product.md
+- Knowledge/Products/ExamSpace/examspace_change_log.md
+- Knowledge/Products/ExamSpace/roadmap.md
+- Knowledge/Products/ExamSpace/marketing.md
+- Knowledge/Products/ExamSpace/RespondusLockDownBrowser_positioning.md
+- Knowledge/Products/ExamSpace/RespondusMonitor_positioning.md
+
+Implementation notes for Bolt
+- Seed only the four sellable products above.
+- Treat product definitions as starting facts with source references, not final exhaustive documentation.
+- Store detailed claims in product_facts so Portia can cite and update individual claims.
+- Store Portia as assistant/system configuration, not in products.
