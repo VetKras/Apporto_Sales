@@ -407,12 +407,12 @@ function ProviderKeyCard({
     setTesting(true)
     setStatus(null)
     try {
-      const { data: { session } } = await supabase.auth.getSession()
+      const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string
       const res = await fetch(
         `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/hubspot-action`,
         {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session?.access_token}` },
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${supabaseAnonKey}` },
           body: JSON.stringify({ action: 'test_connection' }),
         }
       )
