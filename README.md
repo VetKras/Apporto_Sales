@@ -18,7 +18,7 @@ Internal sales intelligence tool for the Apporto AI Suite. Used during customer 
 
 ## Auth
 
-Demo mode — email picker login, no password. Session stored in localStorage. Profile and access level loaded from Supabase on sign-in.
+Demo mode — email picker dropdown + password field (any non-empty string accepted). Session stored in localStorage. Profile and access level loaded from Supabase on sign-in.
 
 ## Access Levels
 
@@ -46,4 +46,4 @@ _Each AI session that touches this codebase logs what it did here. Format: Date 
 
 | Date | Model | Work Done |
 |---|---|---|
-| 2026-06-29 | Claude Sonnet 4.6 | Replaced Supabase Auth with demo email-picker login. Fixed broken Edge Function auth (getSession → anon key) in DealWorkspace, PortiaPanel, PortiaStandalone. Removed dead password field from login form. Consolidated USERS list into users.ts. Added AdminConfigTab (prices, pricing rules, AI model costs) gated at L3+. Added configurable PricingRules loaded from DB. Migrated access control to opaque DB-only role flag; removed all human-readable admin identifiers from codebase. Added migration 015. |
+| 2026-06-29 | Claude Sonnet 4.6 | Replaced Supabase Auth with demo email-picker login. Fixed broken Edge Function auth (getSession → anon key) in DealWorkspace, PortiaPanel, PortiaStandalone, and SettingsPage (4 total — all cleared). Restored password field (accepts any string). Consolidated USERS list into users.ts. Added AdminConfigTab (prices, pricing rules, AI model costs) gated at L3+. Added configurable PricingRules loaded from DB. Migrated access control to opaque DB-only role flag; removed all human-readable admin identifiers from codebase. Added migration 015. Wired product_facts into deal workspace — each selected product now shows collapsible intel (positioning, sales claims, capabilities, risks, integrations) at point of quoting. Fixed TS union type error in SettingsPage tabs. |
