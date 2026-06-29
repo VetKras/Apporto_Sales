@@ -37,3 +37,13 @@ Apply migrations in order from `supabase/migrations/` via the Supabase dashboard
 ## Edge Functions
 
 `hubspot-action` and `portia-chat` must be deployed to your Supabase project. Calls use the project anon key.
+
+---
+
+## AI Coworker Log
+
+_Each AI session that touches this codebase logs what it did here. Format: Date · Model · Summary._
+
+| Date | Model | Work Done |
+|---|---|---|
+| 2026-06-29 | Claude Sonnet 4.6 | Replaced Supabase Auth with demo email-picker login. Fixed broken Edge Function auth (getSession → anon key) in DealWorkspace, PortiaPanel, PortiaStandalone. Removed dead password field from login form. Consolidated USERS list into users.ts. Added AdminConfigTab (prices, pricing rules, AI model costs) gated at L3+. Added configurable PricingRules loaded from DB. Migrated access control to opaque DB-only role flag; removed all human-readable admin identifiers from codebase. Added migration 015. |
