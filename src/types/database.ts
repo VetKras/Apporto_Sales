@@ -375,10 +375,19 @@ export interface Database {
           product_id: string
           competitor_id: string
           threat_tier: string | null
+          escalation_status: string
           category: string | null
           competitor_strength: string | null
           apporto_edge: string | null
+          sales_positioning_line: string | null
+          threat_rationale: string | null
+          key_overlap: string | null
+          pricing_intel: string | null
+          lms_coverage: string | null
+          ferpa_positioning: string | null
           latest_notes: string | null
+          evidence_source: string | null
+          strategic_window: string | null
           confidence: string
           freshness_date: string | null
           source_document_id: string | null
@@ -389,20 +398,38 @@ export interface Database {
           product_id: string
           competitor_id: string
           threat_tier?: string | null
+          escalation_status?: string
           category?: string | null
           competitor_strength?: string | null
           apporto_edge?: string | null
+          sales_positioning_line?: string | null
+          threat_rationale?: string | null
+          key_overlap?: string | null
+          pricing_intel?: string | null
+          lms_coverage?: string | null
+          ferpa_positioning?: string | null
           latest_notes?: string | null
+          evidence_source?: string | null
+          strategic_window?: string | null
           confidence?: string
           freshness_date?: string | null
           source_document_id?: string | null
         }
         Update: {
           threat_tier?: string | null
+          escalation_status?: string
           category?: string | null
           competitor_strength?: string | null
           apporto_edge?: string | null
+          sales_positioning_line?: string | null
+          threat_rationale?: string | null
+          key_overlap?: string | null
+          pricing_intel?: string | null
+          lms_coverage?: string | null
+          ferpa_positioning?: string | null
           latest_notes?: string | null
+          evidence_source?: string | null
+          strategic_window?: string | null
           confidence?: string
           freshness_date?: string | null
         }
