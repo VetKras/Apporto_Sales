@@ -74,11 +74,11 @@ export function SettingsPage() {
       {/* Tabs */}
       <div className="flex gap-1 px-6 py-3 border-b border-neutral-200 bg-white flex-shrink-0">
         {([
-          { id: 'pricing',      label: 'Pricing Config'    },
-          { id: 'integrations', label: 'Integrations'      },
-          ...(canSeeTeam  ? [{ id: 'team',  label: 'Team & Authority' }] : []),
-          { id: 'admin', label: 'Admin Config' },
-        ] as const).map((t) => (
+          { id: 'pricing'      as const, label: 'Pricing Config'    },
+          { id: 'integrations' as const, label: 'Integrations'      },
+          ...(canSeeTeam ? [{ id: 'team'  as const, label: 'Team & Authority' }] : []),
+          { id: 'admin'        as const, label: 'Admin Config'      },
+        ]).map((t) => (
           <button
             key={t.id}
             onClick={() => setActiveTab(t.id)}
