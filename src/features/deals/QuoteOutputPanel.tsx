@@ -1,5 +1,6 @@
 import { useState } from 'react'
-import { Save, Copy, Lock, Globe, AlertTriangle, FileText } from 'lucide-react'
+import { useNavigate } from 'react-router-dom'
+import { Save, Copy, Lock, Globe, AlertTriangle, FileText, ExternalLink } from 'lucide-react'
 import { cn, formatCurrency, formatPercent, approvalColor } from '@/lib/utils'
 import { COTUTOR_MODELS, type QuoteResult } from '@/lib/pricing-engine'
 import {
@@ -25,7 +26,19 @@ interface Props {
   onProposalSectionChange: (key: ProposalSectionKey, value: string) => void
 }
 
-function WarningBadge({ children }: { children: React.ReactNode }) {
+function WarningBadge({ children, onClick }: { children: React.ReactNode; onClick?: () => void }) {
+  if (onClick) {
+    return (
+      <button
+        onClick={onClick}
+        className="w-full flex items-start gap-1.5 text-xs text-amber-700 bg-amber-50 rounded-lg px-2.5 py-2 border border-amber-200 hover:bg-amber-100 hover:border-amber-300 transition-colors text-left group"
+      >
+        <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0 mt-0.5" />
+        <span className="flex-1">{children}</span>
+        <ExternalLink className="w-3 h-3 flex-shrink-0 mt-0.5 opacity-50 group-hover:opacity-100 transition-opacity" />
+      </button>
+    )
+  }
   return (
     <div className="flex items-start gap-1.5 text-xs text-amber-700 bg-amber-50 rounded-lg px-2.5 py-2 border border-amber-200">
       <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0 mt-0.5" />
@@ -35,6 +48,7 @@ function WarningBadge({ children }: { children: React.ReactNode }) {
 }
 
 export function QuoteOutputPanel({ deal, quoteResult, mode, centerContent, onCenterContentChange, onSaveOutput, profile, proposalSections, onProposalSectionChange }: Props) {
+  const navigate = useNavigate()
   const [classification, setClassification] = useState<'customer_facing' | 'internal_only' | 'mixed_draft'>('mixed_draft')
   const [saving, setSaving] = useState(false)
 
@@ -55,7 +69,7 @@ export function QuoteOutputPanel({ deal, quoteResult, mode, centerContent, onCen
     if (content) navigator.clipboard.writeText(content)
   }
 
-  // ── Quote view ───────────────────────────────────────────────────────────────
+  // ── Quote view ────────────────────────────────────────────────────────────────────────
   if (mode === 'quote') {
     return (
       <div className="p-6 space-y-6">
@@ -203,13 +217,13 @@ export function QuoteOutputPanel({ deal, quoteResult, mode, centerContent, onCen
                       if (!modelDef) return null
                       const ratio = (modelDef.inputPricePerMTok / 0.20).toFixed(1)
                       if (tier === 'moderate') return (
-                        <WarningBadge>CoTutor: {modelDef.label} (${modelDef.inputPricePerMTok}/M in) — {ratio}× GPT-5.4 Nano baseline COGS. Verify gross margin before sharing with customer.</WarningBadge>
+                        <WarningBadge onClick={() => navigate('/settings?tab=admin')}>CoTutor: {modelDef.label} (${modelDef.inputPricePerMTok}/M in) — {ratio}× GPT-5.4 Nano baseline COGS. Verify gross margin before sharing with customer.</WarningBadge>
                       )
                       if (tier === 'high') return (
-                        <WarningBadge>CoTutor: {modelDef.label} (${modelDef.inputPricePerMTok}/M in) — {ratio}× baseline COGS. Margin review required before quoting.</WarningBadge>
+                        <WarningBadge onClick={() => navigate('/settings?tab=admin')}>CoTutor: {modelDef.label} (${modelDef.inputPricePerMTok}/M in) — {ratio}× baseline COGS. Margin review required before quoting.</WarningBadge>
                       )
                       if (tier === 'premium') return (
-                        <WarningBadge>CoTutor: {modelDef.label} (${modelDef.inputPricePerMTok}/M in) — {ratio}× baseline COGS. Requires explicit leadership approval before quoting.</WarningBadge>
+                        <WarningBadge onClick={() => navigate('/settings?tab=admin')}>CoTutor: {modelDef.label} (${modelDef.inputPricePerMTok}/M in) — {ratio}× baseline COGS. Requires explicit leadership approval before quoting.</WarningBadge>
                       )
                       return null
                     })()}
@@ -233,7 +247,7 @@ export function QuoteOutputPanel({ deal, quoteResult, mode, centerContent, onCen
     )
   }
 
-  // ── Proposal view ────────────────────────────────────────────────────────────
+  // ── Proposal view ────────────────────────────────────────────────────────────────────────────
   if (mode === 'proposal') {
     if (!quoteResult) {
       return (
@@ -292,7 +306,7 @@ export function QuoteOutputPanel({ deal, quoteResult, mode, centerContent, onCen
     )
   }
 
-  // ── Battlecard / Strategy — editable textarea ─────────────────────────────
+  // ── Battlecard / Strategy — editable textarea ───────────────────────────────────────────────
   return (
     <div className="flex flex-col h-full">
       <div className="flex items-center gap-2 px-4 py-2 border-b border-neutral-200 bg-neutral-50 flex-shrink-0">

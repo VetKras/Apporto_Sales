@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/contexts/AuthContext'
 import { formatCurrency, cn, authorityColor } from '@/lib/utils'
@@ -22,11 +22,13 @@ type Profile = Database['public']['Tables']['profiles']['Row']
 export function SettingsPage() {
   const { profile, _prv } = useAuth()
   const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
   const [configs, setConfigs] = useState<PricingConfigVersion[]>([])
   const [selectedConfig, setSelectedConfig] = useState<string | null>(null)
   const [models, setModels] = useState<PricingModel[]>([])
   const [profiles, setProfiles] = useState<Profile[]>([])
-  const [activeTab, setActiveTab] = useState<'pricing' | 'team' | 'integrations' | 'admin'>('pricing')
+  const initialTab = searchParams.get('tab') as 'pricing' | 'team' | 'integrations' | 'admin' | null
+  const [activeTab, setActiveTab] = useState<'pricing' | 'team' | 'integrations' | 'admin'>(initialTab ?? 'pricing')
   const [loading, setLoading] = useState(true)
 
   const level = profile?.authority_level ?? 0
@@ -240,7 +242,7 @@ export function SettingsPage() {
   )
 }
 
-// ─── Integrations tab ─────────────────────────────────────────────────────────
+// ─── Integrations tab ─────────────────────────────────────────────────────────────────────────────────
 
 type PredefinedProvider = {
   provider: string
@@ -367,7 +369,7 @@ function IntegrationsTab({ profileId }: { profileId: string | null }) {
   )
 }
 
-// ─── Generic provider card ────────────────────────────────────────────────────
+// ─── Generic provider card ──────────────────────────────────────────────────────────────────────────────
 
 function ProviderKeyCard({
   config,
@@ -534,7 +536,7 @@ function ProviderKeyCard({
   )
 }
 
-// ─── Custom key row ───────────────────────────────────────────────────────────
+// ─── Custom key row ────────────────────────────────────────────────────────────────────────────────────
 
 function CustomKeyRow({ row, onDeleted }: { row: IntegrationSettingsRow; onDeleted: () => void }) {
   const [deleting, setDeleting] = useState(false)
@@ -569,7 +571,7 @@ function CustomKeyRow({ row, onDeleted }: { row: IntegrationSettingsRow; onDelet
   )
 }
 
-// ─── Add custom key ───────────────────────────────────────────────────────────
+// ─── Add custom key ──────────────────────────────────────────────────────────────────────────────────────
 
 function AddCustomKey({ profileId, onSaved }: { profileId: string | null; onSaved: () => void }) {
   const [open, setOpen] = useState(false)
