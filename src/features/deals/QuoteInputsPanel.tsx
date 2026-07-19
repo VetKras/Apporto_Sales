@@ -57,7 +57,6 @@ export function QuoteInputsPanel({ inputs, products, pricingModels, productFacts
   return (
     <div className="divide-y divide-neutral-100">
 
-      {/* ── Products ─────────────────────────────────────────────────────── */}
       <Section label="Products" expanded={productExpanded} onToggle={() => setProductExpanded((e) => !e)}>
         <div className="space-y-1.5">
           {products.map((p) => {
@@ -65,7 +64,6 @@ export function QuoteInputsPanel({ inputs, products, pricingModels, productFacts
             const isSelected = !!sel
             return (
               <div key={p.id} className={cn('rounded-lg border transition-colors', isSelected ? 'border-brand-300 bg-brand-50' : 'border-neutral-200')}>
-                {/* Checkbox row */}
                 <button onClick={() => toggleProduct(p)} className="w-full flex items-center gap-2.5 px-3 py-2.5 text-left">
                   <div className={cn('w-4 h-4 rounded border-2 flex items-center justify-center flex-shrink-0 transition-colors', isSelected ? 'bg-brand-600 border-brand-600' : 'border-neutral-300')}>
                     {isSelected && <div className="w-2 h-2 bg-white rounded-sm" />}
@@ -74,7 +72,6 @@ export function QuoteInputsPanel({ inputs, products, pricingModels, productFacts
                   <span className="text-xs text-neutral-400 truncate">{p.category}</span>
                 </button>
 
-                {/* Product-specific config as compact field rows */}
                 {isSelected && sel && (
                   <div className="px-3 pb-3 space-y-2 border-t border-brand-100 pt-2.5">
 
@@ -187,7 +184,6 @@ export function QuoteInputsPanel({ inputs, products, pricingModels, productFacts
                       <>
                         <Row label="Pricing mode">
                           <select className="select-base" value={sel.trusted_tier ?? 'Standalone'} onChange={(e) => {
-                            // Clear override when mode changes so DB default for new tier shows correctly
                             updateSel(p.id, { trusted_tier: e.target.value, override_price: undefined })
                           }}>
                             <option value="Standalone">Standalone</option>
@@ -196,11 +192,11 @@ export function QuoteInputsPanel({ inputs, products, pricingModels, productFacts
                           <p className="text-xs text-neutral-400 mt-0.5">Standalone and bundle use different storage/analysis rates — never mix.</p>
                         </Row>
                         <Row label="Base rate ($/student/yr)">
-                          <div className="relative">
-                            <span className="absolute left-2 top-1/2 -translate-y-1/2 text-xs text-neutral-400">$</span>
+                          <div className="flex items-center">
+                            <span className="inline-flex items-center px-2 h-8 rounded-l-md border border-r-0 border-neutral-300 bg-neutral-50 text-neutral-500 text-xs select-none">$</span>
                             <input
                               type="number"
-                              className="select-base pl-5"
+                              className="select-base rounded-l-none border-l-0"
                               min={0}
                               step={0.01}
                               value={sel.override_price ?? findPrice(sel.trusted_tier ?? 'Standalone', 'per_student') ?? ''}
@@ -255,7 +251,6 @@ export function QuoteInputsPanel({ inputs, products, pricingModels, productFacts
         </div>
       </Section>
 
-      {/* ── Deal Inputs ──────────────────────────────────────────────────── */}
       <Section label="Deal inputs" expanded={inputsExpanded} onToggle={() => setInputsExpanded((e) => !e)}>
         <div className="space-y-2">
           <div className="grid grid-cols-2 gap-2">
@@ -277,7 +272,7 @@ export function QuoteInputsPanel({ inputs, products, pricingModels, productFacts
               <div className="flex gap-1">
                 {(['new', 'existing'] as const).map((s) => (
                   <button key={s} onClick={() => update({ customer_status: s })} className={cn('flex-1 py-1.5 text-xs font-medium rounded border capitalize transition-colors', inputs.customer_status === s ? 'bg-brand-600 text-white border-brand-600' : 'bg-white text-neutral-600 border-neutral-200 hover:border-brand-300')}>
-                    {s}
+                    {s === 'new' ? 'Pilot' : 'Existing'}
                   </button>
                 ))}
               </div>
@@ -293,7 +288,7 @@ export function QuoteInputsPanel({ inputs, products, pricingModels, productFacts
           </div>
 
           {inputs.customer_status === 'new' && hasExamspace && (
-            <p className="text-xs text-amber-600">ExamSpace: platform fee ($1,200/yr) + setup fee ($2,500) added for new customers.</p>
+            <p className="text-xs text-amber-600">ExamSpace: platform fee ($1,200/yr) + pilot setup fee ($2,500) added for pilot customers.</p>
           )}
           {(inputs.contract_term === '2-year' || inputs.contract_term === '3-year') && (
             <p className="text-xs text-neutral-400">Multi-year terms require Finance review for revenue recognition treatment.</p>
@@ -301,7 +296,6 @@ export function QuoteInputsPanel({ inputs, products, pricingModels, productFacts
         </div>
       </Section>
 
-      {/* ── Deal Terms ───────────────────────────────────────────────────── */}
       <Section
         label="Deal terms"
         expanded={termsExpanded}
@@ -358,7 +352,6 @@ export function QuoteInputsPanel({ inputs, products, pricingModels, productFacts
         </div>
       </Section>
 
-      {/* ── Discount ─────────────────────────────────────────────────────── */}
       <Section label="Discount" expanded={discountExpanded} onToggle={() => setDiscountExpanded((e) => !e)}>
         <div className="space-y-3">
           <div>
@@ -376,7 +369,6 @@ export function QuoteInputsPanel({ inputs, products, pricingModels, productFacts
             </div>
           </div>
 
-          {/* Bundle suggestion */}
           {productCount >= 2 && (() => {
             const suggested = ({ 2: 10, 3: 15, 4: 20 } as Record<number, number>)[Math.min(productCount, 4)]
             if (!suggested || inputs.discount_percent >= suggested) return null
@@ -398,8 +390,6 @@ export function QuoteInputsPanel({ inputs, products, pricingModels, productFacts
     </div>
   )
 }
-
-// ─── Shared primitives ────────────────────────────────────────────────────────
 
 function Section({ label, expanded, onToggle, children, badge }: {
   label: string; expanded: boolean; onToggle: () => void; children: React.ReactNode; badge?: string
@@ -439,7 +429,10 @@ function NumField({ label, value, onChange }: { label: string; value: number; on
 function OverrideRow({ value, onChange }: { value: number | undefined; onChange: (v: number | undefined) => void }) {
   return (
     <Row label="Override price">
-      <input type="number" className="select-base" placeholder="Config default" value={value ?? ''} onChange={(e) => onChange(e.target.value ? Number(e.target.value) : undefined)} min={0} step={0.01} />
+      <div className="flex items-center">
+        <span className="inline-flex items-center px-2 h-8 rounded-l-md border border-r-0 border-neutral-300 bg-neutral-50 text-neutral-500 text-xs select-none">$</span>
+        <input type="number" className="select-base rounded-l-none border-l-0" placeholder="Config default" value={value ?? ''} onChange={(e) => onChange(e.target.value ? Number(e.target.value) : undefined)} min={0} step={0.01} />
+      </div>
     </Row>
   )
 }
