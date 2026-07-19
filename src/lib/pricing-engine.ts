@@ -4,9 +4,6 @@
  * ALL pricing values come from the database (pricing_config_versions + pricing_models).
  * This module never hardcodes prices. Portia must consume QuoteResult objects — it never
  * calculates totals itself.
- *
- * Test: change CoTutor 20/15/10 in config, regenerate a quote, and verify the
- * quote_lines preserve the config_version_id used at calculation time.
  */
 
 import {
@@ -22,19 +19,10 @@ import {
 } from '@/lib/db'
 import type { PricingConfigRow, PricingModelRow, QuoteSnapshotRow } from '@/lib/db'
 
-// ─── Re-export DB types used by callers ───────────────────────────────────────
-
 export type PricingModel = PricingModelRow
 export type PricingConfigVersion = PricingConfigRow
 export type QuoteSnapshot = QuoteSnapshotRow
 
-// ─── Public input / output types ─────────────────────────────────────────────
-
-/**
- * Current AI model catalog with real token pricing (USD per 1M tokens).
- * Input/output prices reflect published rates as of June 2026.
- * Used by the CoTutor AI model selector and COGS warning logic.
- */
 export interface CoTutorModelDef {
   id: string
   label: string
@@ -44,12 +32,10 @@ export interface CoTutorModelDef {
 }
 
 export const COTUTOR_MODELS: CoTutorModelDef[] = [
-  // OpenAI — sorted ascending by input price
   { id: 'gpt-5.4-nano',  label: 'GPT-5.4 Nano',  provider: 'OpenAI',    inputPricePerMTok: 0.20,  outputPricePerMTok: 1.25 },
   { id: 'gpt-5.4-mini',  label: 'GPT-5.4 Mini',  provider: 'OpenAI',    inputPricePerMTok: 0.75,  outputPricePerMTok: 4.50 },
   { id: 'gpt-5.4',       label: 'GPT-5.4',        provider: 'OpenAI',    inputPricePerMTok: 2.50,  outputPricePerMTok: 15.00 },
   { id: 'gpt-5.5',       label: 'GPT-5.5',        provider: 'OpenAI',    inputPricePerMTok: 5.00,  outputPricePerMTok: 30.00 },
-  // Anthropic — sorted ascending by input price
   { id: 'claude-haiku-4-5',  label: 'Claude Haiku 4.5',  provider: 'Anthropic', inputPricePerMTok: 1.00,  outputPricePerMTok: 5.00 },
   { id: 'claude-sonnet-4-6', label: 'Claude Sonnet 4.6', provider: 'Anthropic', inputPricePerMTok: 3.00,  outputPricePerMTok: 15.00 },
   { id: 'claude-opus-4-8',   label: 'Claude Opus 4.8',   provider: 'Anthropic', inputPricePerMTok: 5.00,  outputPricePerMTok: 25.00 },
@@ -60,7 +46,6 @@ const COTUTOR_MODEL_MAP = new Map(COTUTOR_MODELS.map((m) => [m.id, m]))
 
 export const COTUTOR_DEFAULT_MODEL = 'claude-haiku-4-5'
 
-/** Returns COGS tier based on input token price (USD/MTok). */
 function cotutorCogsTier(model: CoTutorModelDef | undefined): 'standard' | 'moderate' | 'high' | 'premium' {
   if (!model) return 'standard'
   const p = model.inputPricePerMTok
@@ -92,28 +77,18 @@ export interface SelectedProduct {
   product_id: string
   product_slug: string
   product_name: string
-  /** cotutor tier: 'Departmental / Premium' | 'Campus / Standard' | 'Platform / Entry' */
   tier_name?: string
-  /** powergrader mode: 'per_student' | 'per_faculty' | 'per_submission' */
   pricing_type?: string
-  /** trusted mode: 'Standalone' | 'Bundle Add-on' */
   trusted_tier?: string
-  /** examspace desktop type: 'Medium' | 'Large' | 'GPU' */
   examspace_tier?: string
-  /** override unit price — user-set; otherwise falls back to DB default */
   override_price?: number
-  // CoTutor-specific
-  /** cotutor ai model id — see COTUTOR_MODELS for valid values */
   ai_model?: string
   assignments_per_course?: number
-  // PowerGrader-specific
   assignments_per_month?: number
   pages_per_submission?: 1 | 6
   lms_platform?: 'Canvas' | 'D2L' | 'Blackboard' | 'Moodle'
-  // TrustEd-specific
   trusted_assignments_per_month?: number
   video_playback?: boolean
-  // ExamSpace-specific
   gpu_requirement?: boolean
 }
 
@@ -131,7 +106,6 @@ export interface QuoteLine {
   unit_cost: number | null
   total_cost: number | null
   margin_percent: number | null
-  /** CRITICAL: preserved for quote reproducibility — never strip this field */
   config_version_id: string
 }
 
@@ -158,9 +132,7 @@ export interface QuoteAssumptions {
   estimated_assignments_per_year: number | null
   estimated_exam_days_per_year: number | null
   ai_model_cogs_warning: boolean
-  /** actual model selected for CoTutor — null if CoTutor not in deal */
   cotutor_ai_model: string | null
-  /** COGS tier based on selected model's input token price */
   cotutor_cogs_tier: CoTutorCogsTier | null
   pages_submission_warning: boolean
   lms_integration_risk: string | null
@@ -169,7 +141,6 @@ export interface QuoteAssumptions {
   tco_multiplier_used: number
   true_up_clause: boolean
   compliance_requirements: string[]
-  /** Products that bill against the same shared student cohort (not additive headcounts) */
   shared_student_cohort_products: string[]
 }
 
@@ -180,8 +151,6 @@ export interface BundleSuggestion {
 }
 
 export type ApprovalLevel = 'Sales' | 'Manager' | 'VP' | 'CFO/Executive'
-
-// ─── Pricing rules (admin-configurable, loaded from integration_settings) ────
 
 export interface PricingRules {
   approval: { sales_max: number; manager_max: number; vp_max: number }
@@ -215,8 +184,6 @@ export async function loadPricingRules(): Promise<PricingRules> {
   }
 }
 
-// ─── Bundle / approval thresholds (use loaded rules at call time) ─────────────
-
 function getBundleSuggestion(
   productCount: number,
   currentDiscountPercent: number,
@@ -243,8 +210,6 @@ function getApprovalLevel(discountPercent: number, rules: PricingRules): Approva
   return 'CFO/Executive'
 }
 
-// ─── DB loaders (delegated to db.ts) ─────────────────────────────────────────
-
 export async function loadActivePricingConfig() {
   return getActivePricingConfig()
 }
@@ -257,13 +222,6 @@ export async function loadPricingModelsForVersion(versionId: string) {
   return getPricingModelsForVersion(versionId)
 }
 
-// ─── Core quote calculations ───────────────────────────────────────────────────
-
-/**
- * Calculates a complete, deterministic quote from deal inputs and a pricing config.
- * Never invents prices — all values come from models loaded from DB.
- * All line prices are sourced from PricingModelRow.default_price (or override_price).
- */
 export function calculateQuote(
   inputs: DealInputs,
   version: PricingConfigVersion,
@@ -312,7 +270,6 @@ export function calculateQuote(
     return { ...l, discount_amount: lineDiscount, net_price: net, margin_percent: margin }
   })
 
-  // ── Build assumptions block ────────────────────────────────────────────────
   const cotutorSel = inputs.selected_products.find((s) => s.product_slug === 'cotutor')
   const pgSel = inputs.selected_products.find((s) => s.product_slug === 'powergrader')
   const trustedSel = inputs.selected_products.find((s) => s.product_slug === 'trusted')
@@ -323,7 +280,6 @@ export function calculateQuote(
     ? `${pgSel.lms_platform} support is limited — confirm integration readiness`
     : null
 
-  // Products that bill against the shared student headcount (same cohort, not additive)
   const sharedCohortProducts = inputs.selected_products
     .filter((s) =>
       s.product_slug === 'cotutor' ||
@@ -423,7 +379,6 @@ function buildProductLines(
       const lines: QuoteLine[] = [
         makeLine(sel, model, tier, inputs.student_count, 'students/year', sel.override_price ?? model.default_price ?? 0, configVersionId)
       ]
-      // Video playback add-on: $0.50/student/month = $6/student/year (standalone only)
       if (sel.video_playback && tier === 'Standalone' && inputs.student_count > 0) {
         lines.push({
           product_id: sel.product_id,
@@ -500,8 +455,6 @@ function round2(n: number): number {
   return Math.round(n * 100) / 100
 }
 
-// ─── Persist quote lines to DB ────────────────────────────────────────────────
-
 export async function persistQuoteLines(result: QuoteResult): Promise<{ error: string | null }> {
   const { deal_id } = result.inputs_snapshot
 
@@ -539,8 +492,6 @@ export async function persistQuoteLines(result: QuoteResult): Promise<{ error: s
   return { error: null }
 }
 
-// ─── Quote snapshots ──────────────────────────────────────────────────────────
-
 export async function persistQuoteSnapshot(
   result: QuoteResult,
   name: string,
@@ -564,8 +515,6 @@ export async function loadQuoteSnapshots(dealId: string): Promise<QuoteSnapshot[
 export async function removeQuoteSnapshot(id: string): Promise<{ error: string | null }> {
   return deleteQuoteSnapshot(id)
 }
-
-// ─── Helpers for Portia source trace ─────────────────────────────────────────
 
 export function buildQuoteSourceTrace(result: QuoteResult): Record<string, unknown> {
   return {
