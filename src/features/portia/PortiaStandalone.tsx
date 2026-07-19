@@ -29,12 +29,13 @@ export function PortiaStandalone() {
     try {
       const supabaseUrl = import.meta.env.VITE_SUPABASE_URL as string
       const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string
+      const { data: { session } } = await supabase.auth.getSession()
 
       const response = await fetch(`${supabaseUrl}/functions/v1/portia-chat`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${supabaseAnonKey}`,
+          'Authorization': `Bearer ${session?.access_token ?? supabaseAnonKey}`,
           'Apikey': supabaseAnonKey,
         },
         body: JSON.stringify({
