@@ -59,7 +59,6 @@ export function SettingsPage() {
     setModels(mods)
   }
 
-  // Redirect L1-L2 users who navigate directly to /settings
   useEffect(() => {
     if (!loading && level < 3 && !_prv) navigate('/deals', { replace: true })
   }, [loading, level, _prv, navigate])
@@ -73,7 +72,6 @@ export function SettingsPage() {
         <p className="text-sm text-neutral-500">Pricing config · Team authority levels · Integrations</p>
       </div>
 
-      {/* Tabs */}
       <div className="flex gap-1 px-6 py-3 border-b border-neutral-200 bg-white flex-shrink-0">
         {([
           { id: 'pricing'      as const, label: 'Pricing Config'    },
@@ -242,8 +240,6 @@ export function SettingsPage() {
   )
 }
 
-// ─── Integrations tab ─────────────────────────────────────────────────────────────────────────────────
-
 type PredefinedProvider = {
   provider: string
   name: string
@@ -331,7 +327,6 @@ function IntegrationsTab({ profileId }: { profileId: string | null }) {
         </div>
       ) : (
         <>
-          {/* Predefined provider cards */}
           <div className="space-y-3">
             {PREDEFINED_PROVIDERS.map((p) => {
               const row = rows.find((r) => r.provider === p.provider)
@@ -347,7 +342,6 @@ function IntegrationsTab({ profileId }: { profileId: string | null }) {
             })}
           </div>
 
-          {/* Custom keys */}
           <div>
             <h3 className="text-xs font-semibold text-neutral-500 uppercase tracking-wide mb-3">
               Custom API Keys
@@ -368,8 +362,6 @@ function IntegrationsTab({ profileId }: { profileId: string | null }) {
     </div>
   )
 }
-
-// ─── Generic provider card ──────────────────────────────────────────────────────────────────────────────
 
 function ProviderKeyCard({
   config,
@@ -536,8 +528,6 @@ function ProviderKeyCard({
   )
 }
 
-// ─── Custom key row ────────────────────────────────────────────────────────────────────────────────────
-
 function CustomKeyRow({ row, onDeleted }: { row: IntegrationSettingsRow; onDeleted: () => void }) {
   const [deleting, setDeleting] = useState(false)
 
@@ -570,8 +560,6 @@ function CustomKeyRow({ row, onDeleted }: { row: IntegrationSettingsRow; onDelet
     </div>
   )
 }
-
-// ─── Add custom key ──────────────────────────────────────────────────────────────────────────────────────
 
 function AddCustomKey({ profileId, onSaved }: { profileId: string | null; onSaved: () => void }) {
   const [open, setOpen] = useState(false)
