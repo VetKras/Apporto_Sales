@@ -1,11 +1,13 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Save, Copy, Lock, Globe, AlertTriangle, FileText, ExternalLink } from 'lucide-react'
+import { Save, Copy, Lock, Globe, AlertTriangle, FileText, ExternalLink, Info, Sparkles } from 'lucide-react'
 import { cn, formatCurrency, formatPercent, approvalColor } from '@/lib/utils'
 import { COTUTOR_MODELS, type QuoteResult } from '@/lib/pricing-engine'
 import {
   ProposalTemplate,
   generateProposalText,
+  generateProposalSections,
+  PROPOSAL_SECTION_KEYS,
   type ProposalSections,
   type ProposalSectionKey,
 } from './ProposalTemplate'
@@ -69,7 +71,6 @@ export function QuoteOutputPanel({ deal, quoteResult, mode, centerContent, onCen
     if (content) navigator.clipboard.writeText(content)
   }
 
-  // ── Quote view ────────────────────────────────────────────────────────────────────────
   if (mode === 'quote') {
     return (
       <div className="p-6 space-y-6">
@@ -83,13 +84,11 @@ export function QuoteOutputPanel({ deal, quoteResult, mode, centerContent, onCen
           </div>
         ) : (
           <>
-            {/* Config version trace */}
             <div className="flex items-center gap-2 text-xs text-neutral-500 bg-neutral-50 rounded-lg px-3 py-2 border border-neutral-200">
               <span className="font-medium">Config:</span> {quoteResult.config_version_name}
               <span className="ml-2 text-neutral-400">· calculated {new Date().toLocaleString()}</span>
             </div>
 
-            {/* Quote lines table */}
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
@@ -122,7 +121,6 @@ export function QuoteOutputPanel({ deal, quoteResult, mode, centerContent, onCen
               )}
             </div>
 
-            {/* Totals */}
             <div className="border-t border-neutral-200 pt-4 space-y-2">
               <div className="flex justify-between text-sm">
                 <span className="text-neutral-500">List total</span>
@@ -152,7 +150,23 @@ export function QuoteOutputPanel({ deal, quoteResult, mode, centerContent, onCen
               )}
             </div>
 
-            {/* Internal fields */}
+            <div className="p-4 bg-blue-50 rounded-xl border border-blue-200">
+              <div className="flex items-center gap-2 mb-1.5">
+                <Info className="w-4 h-4 text-blue-600" />
+                <span className="text-xs font-semibold text-blue-900 uppercase tracking-wide">Fair Usage</span>
+              </div>
+              <p className="text-xs text-blue-800 leading-relaxed">
+                Pricing is based on the enrolled student count and course configuration stated in this quote.
+                Usage is monitored on a rolling basis. If actual enrollment or usage volume exceeds the
+                quoted figures by more than 10%, a true-up adjustment will apply at the next billing
+                cycle. CoTutor AI tutoring sessions are subject to a per-student annual cap aligned with
+                the quoted tier; reasonable overages are included, but sustained excess usage may trigger
+                a tier review. PowerGrader submissions are capped at the assumed pages per submission;
+                significantly longer submissions may incur additional processing fees. All usage data is
+                shared transparently with the institution through quarterly reports.
+              </p>
+            </div>
+
             <div className="badge-internal inline-block mb-2">Internal only</div>
             <div className="grid grid-cols-2 gap-3 p-4 bg-amber-50 rounded-xl border border-amber-200 text-sm">
               <div>
@@ -180,7 +194,6 @@ export function QuoteOutputPanel({ deal, quoteResult, mode, centerContent, onCen
               )}
             </div>
 
-            {/* Course assumptions + deal term notes */}
             {quoteResult.assumptions && (
               <div className="space-y-2">
                 <div className="text-xs font-semibold text-neutral-500 uppercase tracking-wide">Assumptions &amp; notes</div>
@@ -247,7 +260,6 @@ export function QuoteOutputPanel({ deal, quoteResult, mode, centerContent, onCen
     )
   }
 
-  // ── Proposal view ────────────────────────────────────────────────────────────────────────────
   if (mode === 'proposal') {
     if (!quoteResult) {
       return (
@@ -265,7 +277,6 @@ export function QuoteOutputPanel({ deal, quoteResult, mode, centerContent, onCen
 
     return (
       <div className="flex flex-col h-full">
-        {/* Toolbar */}
         <div className="flex items-center gap-2 px-4 py-2 border-b border-neutral-200 bg-neutral-50 flex-shrink-0">
           <select
             className="input-base w-auto py-1 text-xs"
@@ -283,6 +294,19 @@ export function QuoteOutputPanel({ deal, quoteResult, mode, centerContent, onCen
             <span className="badge-customer flex items-center gap-1"><Globe className="w-3 h-3" />Customer</span>
           )}
           <div className="ml-auto flex gap-2">
+            <button
+              className="btn-secondary py-1.5 text-xs"
+              onClick={() => {
+                if (!quoteResult) return
+                const generated = generateProposalSections(deal, quoteResult, profile)
+                PROPOSAL_SECTION_KEYS.forEach((key) => {
+                  if (generated[key]) onProposalSectionChange(key, generated[key])
+                })
+              }}
+              title="Fill proposal sections from quote data (no AI required)"
+            >
+              <Sparkles className="w-3.5 h-3.5" /> Auto-fill
+            </button>
             <button className="btn-ghost py-1 text-xs" onClick={handleCopy}>
               <Copy className="w-3.5 h-3.5" /> Copy as text
             </button>
@@ -292,7 +316,6 @@ export function QuoteOutputPanel({ deal, quoteResult, mode, centerContent, onCen
           </div>
         </div>
 
-        {/* Document */}
         <div className="flex-1 overflow-y-auto px-10 py-10 bg-white">
           <ProposalTemplate
             deal={deal}
@@ -306,7 +329,6 @@ export function QuoteOutputPanel({ deal, quoteResult, mode, centerContent, onCen
     )
   }
 
-  // ── Battlecard / Strategy — editable textarea ───────────────────────────────────────────────
   return (
     <div className="flex flex-col h-full">
       <div className="flex items-center gap-2 px-4 py-2 border-b border-neutral-200 bg-neutral-50 flex-shrink-0">
