@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import { NavLink, Outlet, useNavigate } from 'react-router-dom'
 import {
   LayoutDashboard, FileText, Package, Swords, MessageSquare,
@@ -27,12 +27,10 @@ export function AppLayout() {
 
   return (
     <div className="flex h-screen bg-neutral-50 overflow-hidden">
-      {/* Sidebar */}
       <aside className={cn(
         'flex flex-col bg-neutral-900 text-white transition-all duration-200 flex-shrink-0',
         collapsed ? 'w-14' : 'w-52'
       )}>
-        {/* Brand */}
         <div className="flex items-center gap-3 px-3 py-4 border-b border-neutral-800">
           <div className="w-8 h-8 bg-brand-600 rounded-lg flex items-center justify-center flex-shrink-0">
             <span className="text-white font-semibold text-sm">A</span>
@@ -45,7 +43,6 @@ export function AppLayout() {
           )}
         </div>
 
-        {/* Nav */}
         <nav className="flex-1 py-3 space-y-0.5 px-2">
           {NAV_ITEMS.map(({ to, label, icon: Icon }) => (
             <NavLink
@@ -66,7 +63,6 @@ export function AppLayout() {
           ))}
         </nav>
 
-        {/* Profile footer */}
         <div className="border-t border-neutral-800 p-3">
           {profile && (
             <div className={cn('flex items-center gap-2 mb-2', collapsed && 'justify-center')}>
@@ -97,7 +93,6 @@ export function AppLayout() {
           </button>
         </div>
 
-        {/* Collapse toggle */}
         <button
           onClick={() => setCollapsed((c) => !c)}
           className="absolute bottom-24 -right-3 w-6 h-6 bg-neutral-700 rounded-full flex items-center justify-center
@@ -108,7 +103,6 @@ export function AppLayout() {
         </button>
       </aside>
 
-      {/* Main content */}
       <main className="flex-1 overflow-hidden">
         <Outlet />
       </main>
