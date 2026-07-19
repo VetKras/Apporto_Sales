@@ -5,8 +5,6 @@ import type { Database } from '@/types/database'
 type Deal = Database['public']['Tables']['deals']['Row']
 type Profile = Database['public']['Tables']['profiles']['Row']
 
-// ─── Section definitions ──────────────────────────────────────────────────────
-
 export const PROPOSAL_SECTION_KEYS = [
   'executive_summary',
   'challenge',
@@ -83,7 +81,145 @@ const PRODUCT_DESCRIPTIONS: Record<string, string> = {
     'Secure VDI-based exam environment with full application control, lockdown capability, and complete audit trails — goes beyond browser-only proctoring.',
 }
 
-// ─── Plain-text export ────────────────────────────────────────────────────────
+interface ProductProposalBlock {
+  challenge: string
+  solution: string
+  value: string
+}
+
+const PRODUCT_PROPOSAL_BLOCKS: Record<string, ProductProposalBlock> = {
+  cotutor: {
+    challenge:
+      'Student Support Gap — Students increasingly expect 24/7, personalized academic support, but faculty tutoring capacity is finite and unevenly distributed across course sections. Students who cannot access timely help disengage, submit lower-quality work, and are more likely to drop courses.',
+    solution:
+      'CoTutor is an AI-powered, assignment-aware writing assistant embedded directly in Canvas, Google Docs, and Microsoft Word. Unlike general-purpose chatbots, CoTutor operates within faculty-defined rubrics and course context, providing Socratic guidance that teaches rather than answers. Faculty control the guardrails — setting scope, depth, and acceptable assistance levels per assignment. CoTutor integrates seamlessly with existing LMS workflows, requires no separate login, and uses PowerGrader for pre-submission review when both products are deployed together.',
+    value:
+      'CoTutor delivers 24/7 assignment-aware tutoring within faculty guardrails, improving learning outcomes without compromising academic standards. Students receive immediate, contextualized feedback on drafts, reducing office-hour bottlenecks and supporting differentiated instruction at scale. Faculty retain full pedagogical control while extending their reach beyond classroom hours.',
+  },
+  powergrader: {
+    challenge:
+      'Faculty Workload — Grading and feedback cycles consume significant faculty time, limiting capacity for research, curriculum innovation, and student mentoring. At scale, the grading burden grows linearly with enrollment, creating a structural bottleneck that depresses faculty satisfaction and slows feedback turnaround for students.',
+    solution:
+      'PowerGrader is an AI-assisted grading tool that generates draft scores and detailed rubric-aligned feedback for faculty review. It is not automated grading — faculty remain the final authority on every grade. PowerGrader analyzes submissions against the course rubric, flags potential issues, and produces a starting draft that faculty accept, modify, or reject. This reduces time-on-task by an estimated 40–60% per submission while preserving academic judgment and standards.',
+    value:
+      'PowerGrader reduces grading time by generating draft scores and rubric-aligned feedback, freeing faculty for higher-value activities. Faculty report faster turnaround, more consistent rubric application, and the ability to focus their time on substantive feedback rather than mechanical scoring. The result is better feedback for students, faster grade publication, and reclaimed faculty hours for teaching innovation.',
+  },
+  trusted: {
+    challenge:
+      'Academic Integrity in the AI Era — The rise of generative AI has created unprecedented challenges in verifying student authorship. Traditional plagiarism detection tools compare text against databases — they cannot detect AI-generated content or distinguish between human and machine writing. Institutions need evidence-based approaches that are fair, transparent, and defensible.',
+    solution:
+      'TrustEd is a behavioral authorship verification system that captures writing-process signals throughout assignment completion — keystroke patterns, revision history, pause dynamics, and editing behavior. Rather than scanning finished text, TrustEd builds a process fingerprint that provides evidence-based context for faculty integrity decisions. It does not automatically accuse or penalize; faculty review the evidence and make the final call. TrustEd integrates with LMS assignment workflows and works alongside CoTutor and PowerGrader for end-to-end writing integrity.',
+    value:
+      'TrustEd provides evidence-based authorship verification, reducing false positives and supporting fair, defensible integrity decisions. Instead of algorithmic accusations, faculty receive behavioral context that illuminates how work was produced. This shifts the integrity conversation from policing to evidence, protects students from wrongful suspicion, and gives institutions a transparent, auditable process for AI-era academic integrity.',
+  },
+  examspace: {
+    challenge:
+      'Assessment Security — Browser-based proctoring tools are increasingly circumvented through secondary devices, virtual machines, and AI assistance. High-stakes exams require a security environment that controls the full computing experience, not just the browser tab. Institutions that rely on browser-only lockdown risk compromised exam validity and reputational damage.',
+    solution:
+      'ExamSpace is a secure VDI-based exam environment with full application control, lockdown capability, and complete audit trails. Unlike browser extensions, ExamSpace runs the entire desktop in an isolated virtual environment — students cannot access local files, secondary applications, or unapproved resources. ExamSpace supports complex application-based assessments (CAD, programming IDEs, statistical software) that browser lockdown cannot handle. It provides real-time monitoring, post-exam audit logs, and configurable policies per exam or course.',
+    value:
+      'ExamSpace VDI-based security goes beyond browser lockdown, ensuring exam integrity even with complex application-based assessments. Institutions gain confidence in high-stakes exam validity, reduce proctoring disputes, and can securely administer assessments that require specialized software. The audit trail provides defensible evidence if results are challenged.',
+  },
+}
+
+export function generateProposalSections(
+  deal: Deal,
+  quoteResult: QuoteResult,
+  profile: Profile | null,
+): ProposalSections {
+  const lines = quoteResult.lines ?? []
+  const slugMap = new Map(
+    (quoteResult.inputs_snapshot.selected_products ?? []).map((p) => [p.product_id, p.product_slug]),
+  )
+  const selectedSlugs = lines
+    .map((l) => slugMap.get(l.product_id) ?? '')
+    .filter((s) => s && PRODUCT_PROPOSAL_BLOCKS[s])
+  const products = lines.map((l) => l.product_name)
+  const productList = products.join(', ')
+  const studentCount = quoteResult.inputs_snapshot.student_count
+  const customerName = deal.customer_name
+  const isNew = quoteResult.inputs_snapshot.customer_status === 'new'
+  const total = quoteResult.final_total
+  const perStudent = quoteResult.per_student_price
+  const discount = quoteResult.discount_percent
+  const isMulti = selectedSlugs.length > 1
+
+  const productClause = isMulti
+    ? `a multi-product ${productList} deployment`
+    : `a ${productList} deployment`
+  const executive_summary =
+    `${customerName} is evaluating the Apporto AI Suite to advance its academic mission through AI-powered teaching and assessment tools. ` +
+    `This proposal outlines ${productClause}${studentCount ? ` for approximately ${studentCount.toLocaleString()} students` : ''}, ` +
+    `representing an annual investment of ${formatCurrency(total)}${perStudent ? ` (${formatCurrency(perStudent)}/student/yr)` : ''}. ` +
+    (isNew
+      ? 'As a new Apporto customer, this engagement includes full onboarding, faculty training, and dedicated customer success support.'
+      : 'As an existing Apporto customer, this proposal builds on our established partnership with expanded capabilities and integrated workflows.')
+
+  const challengeParts: string[] = []
+  challengeParts.push(
+    `${customerName} faces challenges shared by higher education institutions adopting AI-era academic tools:`,
+  )
+  for (const slug of selectedSlugs) {
+    challengeParts.push('')
+    challengeParts.push(PRODUCT_PROPOSAL_BLOCKS[slug].challenge)
+  }
+  challengeParts.push('')
+  challengeParts.push(
+    'The cost of inaction is measured in compromised academic standards, faculty burnout, and reputational risk as peer institutions adopt AI-native solutions.',
+  )
+  const challenge = challengeParts.join('\n')
+
+  const solutionParts: string[] = []
+  solutionParts.push(
+    `The proposed ${productList} deployment directly addresses ${customerName}'s challenges through an integrated, AI-native platform designed specifically for higher education:`,
+  )
+  for (const slug of selectedSlugs) {
+    solutionParts.push('')
+    solutionParts.push(PRODUCT_PROPOSAL_BLOCKS[slug].solution)
+  }
+  if (isMulti) {
+    solutionParts.push('')
+    solutionParts.push(
+      'These products are designed to work together as an integrated suite. ' +
+        'CoTutor sessions feed into PowerGrader for pre-submission review, TrustEd captures process evidence during writing assignments, and ExamSpace provides a secure VDI environment for high-stakes assessments. ' +
+        'Each product integrates natively with major LMS platforms (Canvas, D2L, Blackboard, Moodle), ensuring minimal friction for faculty and students.',
+    )
+  }
+  if (quoteResult.assumptions.lms_integration_risk) {
+    solutionParts.push('')
+    solutionParts.push(`Note: ${quoteResult.assumptions.lms_integration_risk}`)
+  }
+  const solution_notes = solutionParts.join('\n')
+
+  const valueParts: string[] = []
+  valueParts.push(
+    `At ${formatCurrency(total)}/year${perStudent ? ` (${formatCurrency(perStudent)}/student/yr)` : ''}, the Apporto AI Suite delivers measurable value across multiple dimensions:`,
+  )
+  for (const slug of selectedSlugs) {
+    valueParts.push('')
+    valueParts.push(`• ${PRODUCT_PROPOSAL_BLOCKS[slug].value}`)
+  }
+  if (discount > 0) {
+    valueParts.push('')
+    valueParts.push(
+      `A ${discount}% discount has been applied, reflecting the strategic value of this partnership` +
+        `${quoteResult.assumptions.contract_term !== 'annual' ? ` and the ${quoteResult.assumptions.contract_term} commitment` : ''}.`,
+    )
+  }
+  valueParts.push('')
+  valueParts.push(
+    `This investment positions ${customerName} as a leader in AI-enabled education, with a platform that scales with enrollment growth and evolving pedagogical needs.`,
+  )
+  const value_statement = valueParts.join('\n')
+
+  return {
+    ...PROPOSAL_SECTION_DEFAULTS,
+    executive_summary,
+    challenge,
+    solution_notes,
+    value_statement,
+  }
+}
 
 export function generateProposalText(
   deal: Deal,
@@ -141,7 +277,7 @@ export function generateProposalText(
 
   t += `CONTRACT TERMS\n${sub}\n`
   t += `Contract term: ${quoteResult.assumptions.contract_term}\n`
-  t += `Customer status: ${quoteResult.inputs_snapshot.customer_status === 'new' ? 'New customer' : 'Existing customer'}\n`
+  t += `Customer status: ${quoteResult.inputs_snapshot.customer_status === 'new' ? 'Pilot' : 'Existing customer'}\n`
   if ((quoteResult.assumptions.compliance_requirements?.length ?? 0) > 0)
     t += `Compliance: ${quoteResult.assumptions.compliance_requirements.join(', ')}\n`
   if (quoteResult.assumptions.true_up_clause)
@@ -156,8 +292,6 @@ export function generateProposalText(
   t += `All figures are reference estimates pending final approval and contract execution.\n`
   return t
 }
-
-// ─── Component primitives ─────────────────────────────────────────────────────
 
 function AutoTag() {
   return (
@@ -214,8 +348,6 @@ function EditableField({
   )
 }
 
-// ─── Main component ───────────────────────────────────────────────────────────
-
 interface Props {
   deal: Deal
   quoteResult: QuoteResult
@@ -234,7 +366,6 @@ export function ProposalTemplate({ deal, quoteResult, profile, sections, onSecti
   return (
     <div className="max-w-2xl mx-auto space-y-8 text-neutral-800">
 
-      {/* Document header */}
       <div className="flex items-start justify-between pb-6 border-b border-neutral-200">
         <div>
           <div className="text-2xl font-bold text-neutral-900 tracking-tight">Proposal</div>
@@ -252,17 +383,14 @@ export function ProposalTemplate({ deal, quoteResult, profile, sections, onSecti
         </div>
       </div>
 
-      {/* Executive Summary */}
       <DocSection title="Executive Summary">
         <EditableField sectionKey="executive_summary" value={sections.executive_summary} onChange={onSectionChange} />
       </DocSection>
 
-      {/* The Challenge */}
       <DocSection title="The Challenge">
         <EditableField sectionKey="challenge" value={sections.challenge} onChange={onSectionChange} />
       </DocSection>
 
-      {/* Proposed Solution */}
       <DocSection title="Proposed Solution" auto>
         <div className="space-y-3">
           {lines.map((line, i) => {
@@ -295,7 +423,6 @@ export function ProposalTemplate({ deal, quoteResult, profile, sections, onSecti
         </div>
       </DocSection>
 
-      {/* Investment Summary */}
       <DocSection title="Investment Summary" auto>
         <table className="w-full text-sm">
           <thead>
@@ -345,17 +472,14 @@ export function ProposalTemplate({ deal, quoteResult, profile, sections, onSecti
         </div>
       </DocSection>
 
-      {/* Implementation */}
       <DocSection title="Implementation & Onboarding">
         <EditableField sectionKey="implementation" value={sections.implementation} onChange={onSectionChange} />
       </DocSection>
 
-      {/* Why Apporto */}
       <DocSection title="Why Apporto">
         <EditableField sectionKey="why_apporto" value={sections.why_apporto} onChange={onSectionChange} />
       </DocSection>
 
-      {/* Contract Terms */}
       <DocSection title="Contract Terms" auto>
         <div className="grid grid-cols-2 gap-x-8 gap-y-3 text-sm">
           <div>
@@ -365,7 +489,7 @@ export function ProposalTemplate({ deal, quoteResult, profile, sections, onSecti
           <div>
             <div className="text-xs text-neutral-400 uppercase tracking-wide mb-0.5">Customer status</div>
             <div className="font-medium text-neutral-900 capitalize">
-              {quoteResult.inputs_snapshot.customer_status} customer
+              {quoteResult.inputs_snapshot.customer_status === 'new' ? 'Pilot' : 'Existing customer'}
             </div>
           </div>
           {(quoteResult.assumptions.compliance_requirements?.length ?? 0) > 0 && (
@@ -386,12 +510,10 @@ export function ProposalTemplate({ deal, quoteResult, profile, sections, onSecti
         </div>
       </DocSection>
 
-      {/* Next Steps */}
       <DocSection title="Next Steps">
         <EditableField sectionKey="next_steps" value={sections.next_steps} onChange={onSectionChange} />
       </DocSection>
 
-      {/* Footer */}
       <div className="text-[11px] text-neutral-300 italic border-t border-neutral-100 pt-4">
         Prepared using Apporto pricing configuration {quoteResult.config_version_name}. All figures are
         reference estimates pending final approval and contract execution.
