@@ -545,6 +545,7 @@ export function PortiaPanel({
             customer_status: inputs.customer_status,
             selected_product_slugs: inputs.selected_products.map((p) => p.product_slug),
           },
+          user_profile_id: profile?.id ?? null,
           user_authority_level: profile?.authority_level ?? 1,
           user_name: profile?.name ?? 'User',
           center_mode: centerMode,

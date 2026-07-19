@@ -42,6 +42,7 @@ export function PortiaStandalone() {
           messages: [...messages, userMsg].map((m) => ({ role: m.role, content: m.content })),
           deal_context: { customer_name: 'General inquiry', deal_id: null },
           quote_context: null,
+          user_profile_id: profile?.id ?? null,
           user_authority_level: profile?.authority_level ?? 1,
           user_name: profile?.name ?? 'User',
         }),
