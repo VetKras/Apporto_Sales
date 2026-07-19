@@ -6,9 +6,11 @@ import type { QuoteResult, DealInputs } from '@/lib/pricing-engine'
 import {
   SECTION_LABELS,
   PROPOSAL_SECTION_KEYS,
+  generateProposalSections,
   type ProposalSections,
   type ProposalSectionKey,
 } from '@/features/deals/ProposalTemplate'
+import { generateBattleCard } from '@/lib/battlecard-generator'
 import type { Database as DB } from '@/types/database'
 
 type Profile = DB['public']['Tables']['profiles']['Row']
@@ -77,15 +79,13 @@ const VALID_ACTION_FIELDS = new Set([
   'exam_days', 'seats_per_exam_day', 'contract_term', 'customer_status',
 ])
 
-// Filter action block markers from display content during streaming
 function filterActionBlocks(content: string): string {
   return content
     .replace(/<<<ACTION>>>[\s\S]*?<<<END_ACTION>>>/g, '')
-    .replace(/<<<ACTION>>>[\s\S]*/g, '') // partial block at end of stream
+    .replace(/<<<ACTION>>>[\s\S]*/g, '')
     .trim()
 }
 
-// Extract the first action block from full content after stream completes
 function extractAction(fullContent: string): QuoteAction | null {
   const match = /<<<ACTION>>>\s*([\s\S]*?)\s*<<<END_ACTION>>>/.exec(fullContent)
   if (!match) return null
@@ -130,7 +130,6 @@ export function PortiaPanel({
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages])
 
-  // Create or load Portia session for this deal
   useEffect(() => {
     async function ensureSession() {
       const { data } = await supabase
@@ -216,11 +215,271 @@ export function PortiaPanel({
     )
   }
 
+  const PROPOSAL_FILL_PATTERNS = [
+    /\b(fill|update|generate|draft|write|populate|auto[- ]?fill)\b.*\b(proposal|proposal sections)\b/i,
+    /\b(proposal|proposal sections)\b.*\b(fill|update|generate|draft|write|populate|auto[- ]?fill)\b/i,
+    /\bfill\b.*\bproposal\b/i,
+  ]
+
+  const BATTLECARD_FILL_PATTERNS = [
+    /\b(fill|update|generate|draft|write|populate|auto[- ]?fill|build|create|show|get)\b.*\b(battle[ ]?cards?|battlecards?)\b/i,
+    /\b(battle[ ]?cards?|battlecards?)\b.*\b(fill|update|generate|draft|write|populate|auto[- ]?fill|build|create|show|get)\b/i,
+    /\b(battle[ ]?cards?|battlecards?)\b/i,
+  ]
+
+  function isProposalFillCommand(text: string): boolean {
+    return PROPOSAL_FILL_PATTERNS.some((re) => re.test(text))
+  }
+
+  function isBattleCardFillCommand(text: string): boolean {
+    return BATTLECARD_FILL_PATTERNS.some((re) => re.test(text))
+  }
+
+  const FIELD_ALIASES: Record<string, { field: QuoteAction['field']; label: string }> = {
+    'student count': { field: 'student_count', label: 'student count' },
+    'students': { field: 'student_count', label: 'student count' },
+    'student': { field: 'student_count', label: 'student count' },
+    'faculty count': { field: 'faculty_count', label: 'faculty count' },
+    'faculty': { field: 'faculty_count', label: 'faculty count' },
+    'course sections': { field: 'course_sections', label: 'course sections' },
+    'sections': { field: 'course_sections', label: 'course sections' },
+    'exam days': { field: 'exam_days', label: 'exam days' },
+    'exam day': { field: 'exam_days', label: 'exam days' },
+    'seats per exam day': { field: 'seats_per_exam_day', label: 'seats per exam day' },
+    'seats': { field: 'seats_per_exam_day', label: 'seats per exam day' },
+    'seats per day': { field: 'seats_per_exam_day', label: 'seats per exam day' },
+    'discount': { field: 'discount_percent', label: 'discount' },
+    'discount percent': { field: 'discount_percent', label: 'discount' },
+    'discount percentage': { field: 'discount_percent', label: 'discount' },
+  }
+
+  function parseInputUpdateCommand(text: string): { field: QuoteAction['field']; value: number; label: string } | null {
+    const verbRe = /\b(?:update|set|change|make|adjust|increase|decrease|put)\b/i
+    if (!verbRe.test(text)) return null
+
+    const lower = text.toLowerCase()
+
+    const sortedAliases = Object.keys(FIELD_ALIASES).sort((a, b) => b.length - a.length)
+
+    for (const alias of sortedAliases) {
+      if (!lower.includes(alias)) continue
+
+      const patterns = [
+        new RegExp(`${alias}[^0-9]*\bto\b[^0-9]*([0-9,]+)`, 'i'),
+        new RegExp(`\bto\b[^0-9]*([0-9,]+)[^0-9]*${alias}`, 'i'),
+        new RegExp(`${alias}[^0-9]*=\s*([0-9,]+)`, 'i'),
+        new RegExp(`${alias}\s+(?:to\s+)?([0-9,]+)`, 'i'),
+      ]
+
+      for (const re of patterns) {
+        const m = re.exec(text)
+        if (m) {
+          const rawNum = m[1].replace(/,/g, '')
+          const value = parseInt(rawNum, 10)
+          if (isNaN(value) || value < 0) return null
+
+          let finalValue = value
+          if (FIELD_ALIASES[alias].field === 'discount_percent') {
+            finalValue = Math.min(value, 100)
+          }
+
+          return { field: FIELD_ALIASES[alias].field, value: finalValue, label: FIELD_ALIASES[alias].label }
+        }
+      }
+    }
+
+    return null
+  }
+
+  async function handleProposalFill(text: string) {
+    const userMsg: Message = { id: crypto.randomUUID(), role: 'user', content: text }
+    setMessages((m) => [...m, userMsg])
+    setLoading(true)
+
+    if (sessionId) {
+      await supabase.from('portia_messages').insert({
+        session_id: sessionId,
+        role: 'user' as const,
+        content: text,
+        source_trace: {},
+      })
+    }
+
+    let assistantContent = ''
+    let sourceTrace: SourceTrace | undefined
+
+    if (!quoteResult) {
+      assistantContent =
+        "I'd be happy to fill in the proposal for you, but we need a calculated quote first. Please calculate a quote on the Quote tab, then ask me again to fill the proposal. I won't invent pricing totals."
+    } else {
+      const generated = generateProposalSections(deal, quoteResult, profile)
+      PROPOSAL_SECTION_KEYS.forEach((key) => {
+        if (generated[key]) onProposalSectionChange(key, generated[key])
+      })
+      const productNames = quoteResult.lines.map((l) => l.product_name).filter(Boolean)
+      const productList = productNames.length > 0 ? productNames.join(', ') : 'the selected products'
+      assistantContent =
+        `Done! I've filled in all proposal sections based on the current quote data for ${productList}. ` +
+        `You can review and edit each section on the proposal panel — the Executive Summary, The Challenge, Solution Fit, and Investment Rationale sections now have content tailored to ${deal.customer_name}'s deal. ` +
+        `Switch to the Proposal tab to review, and let me know if you'd like any adjustments.`
+      sourceTrace = {
+        config_version_id: quoteResult.config_version_id,
+        config_version_name: quoteResult.config_version_name,
+        has_quote: true,
+        user_authority_level: profile?.authority_level ?? 1,
+        generated_at: new Date().toISOString(),
+      }
+    }
+
+    const assistantId = crypto.randomUUID()
+    const assistantMsg: Message = { id: assistantId, role: 'assistant', content: assistantContent, source_trace: sourceTrace }
+    setMessages((m) => [...m, assistantMsg])
+
+    if (sessionId) {
+      await supabase.from('portia_messages').insert({
+        session_id: sessionId,
+        role: 'assistant' as const,
+        content: assistantContent,
+        source_trace: sourceTrace ?? {},
+      })
+    }
+
+    setLoading(false)
+  }
+
+  async function handleBattleCardFill(text: string) {
+    const userMsg: Message = { id: crypto.randomUUID(), role: 'user', content: text }
+    setMessages((m) => [...m, userMsg])
+    setLoading(true)
+
+    if (sessionId) {
+      await supabase.from('portia_messages').insert({
+        session_id: sessionId,
+        role: 'user' as const,
+        content: text,
+        source_trace: {},
+      })
+    }
+
+    const result = await generateBattleCard(quoteResult)
+
+    let assistantContent = ''
+    if (!result.hasData) {
+      assistantContent = result.content
+    } else {
+      onCenterContentChange(result.content)
+      const productList = quoteResult && quoteResult.lines.length > 0
+        ? quoteResult.lines.map((l) => l.product_name).join(', ')
+        : 'all active products'
+      assistantContent =
+        `Done! I've generated battle cards for ${productList}, covering ${result.competitorCount} competitor${result.competitorCount !== 1 ? 's' : ''} total. ` +
+        `Each card includes threat tier, competitor strengths, Apporto advantages, pricing intel, LMS coverage, FERPA positioning, and ready-to-use positioning lines. ` +
+        `Switch to the Battlecard tab to review, and let me know if you'd like to adjust anything.`
+    }
+
+    const sourceTrace: SourceTrace = {
+      has_quote: !!quoteResult,
+      user_authority_level: profile?.authority_level ?? 1,
+      generated_at: new Date().toISOString(),
+    }
+
+    const assistantId = crypto.randomUUID()
+    const assistantMsg: Message = { id: assistantId, role: 'assistant', content: assistantContent, source_trace: sourceTrace }
+    setMessages((m) => [...m, assistantMsg])
+
+    if (sessionId) {
+      await supabase.from('portia_messages').insert({
+        session_id: sessionId,
+        role: 'assistant' as const,
+        content: assistantContent,
+        source_trace: sourceTrace,
+      })
+    }
+
+    setLoading(false)
+  }
+
+  async function handleInputUpdate(text: string, parsed: { field: QuoteAction['field']; value: number; label: string }) {
+    const userMsg: Message = { id: crypto.randomUUID(), role: 'user', content: text }
+    setMessages((m) => [...m, userMsg])
+    setLoading(true)
+
+    if (sessionId) {
+      await supabase.from('portia_messages').insert({
+        session_id: sessionId,
+        role: 'user' as const,
+        content: text,
+        source_trace: {},
+      })
+    }
+
+    const oldValue = (inputs as Record<string, unknown>)[parsed.field] as number
+    const updated = { ...inputs } as Record<string, unknown>
+    updated[parsed.field] = parsed.value
+    onInputsChange(updated as unknown as Omit<DealInputs, 'deal_id'>)
+    onCalculate()
+
+    const assistantContent =
+      `Done! I've updated the ${parsed.label} from ${oldValue?.toLocaleString() ?? 0} to ${parsed.value.toLocaleString()}. ` +
+      `The quote has been recalculated with the new value. ` +
+      `Let me know if you'd like any other changes.`
+
+    const sourceTrace: SourceTrace = {
+      has_quote: !!quoteResult,
+      user_authority_level: profile?.authority_level ?? 1,
+      generated_at: new Date().toISOString(),
+    }
+
+    const assistantId = crypto.randomUUID()
+    const assistantMsg: Message = { id: assistantId, role: 'assistant', content: assistantContent, source_trace: sourceTrace }
+    setMessages((m) => [...m, assistantMsg])
+
+    if (sessionId) {
+      await supabase.from('portia_messages').insert({
+        session_id: sessionId,
+        role: 'assistant' as const,
+        content: assistantContent,
+        source_trace: sourceTrace,
+      })
+      await supabase.from('ai_events').insert({
+        event_type: 'applied_update' as const,
+        status: 'created',
+        deal_id: deal.id,
+        actor_profile_id: profile?.id ?? null,
+        reference: {
+          field: parsed.field,
+          old_value: oldValue,
+          new_value: parsed.value,
+          reason: 'local command parse',
+          session_id: sessionId,
+        },
+      })
+    }
+
+    setLoading(false)
+  }
+
   async function sendMessage() {
     const text = input.trim()
     if (!text || loading) return
     setInput('')
     setError(null)
+
+    if (isBattleCardFillCommand(text)) {
+      await handleBattleCardFill(text)
+      return
+    }
+
+    if (isProposalFillCommand(text)) {
+      await handleProposalFill(text)
+      return
+    }
+
+    const inputUpdate = parseInputUpdateCommand(text)
+    if (inputUpdate) {
+      await handleInputUpdate(text, inputUpdate)
+      return
+    }
 
     const userMsg: Message = { id: crypto.randomUUID(), role: 'user', content: text }
     setMessages((m) => [...m, userMsg])
@@ -238,12 +497,13 @@ export function PortiaPanel({
     try {
       const supabaseUrl = import.meta.env.VITE_SUPABASE_URL as string
       const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string
+      const { data: { session } } = await supabase.auth.getSession()
 
       const response = await fetch(`${supabaseUrl}/functions/v1/portia-chat`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${supabaseAnonKey}`,
+          'Authorization': `Bearer ${session?.access_token ?? supabaseAnonKey}`,
           'Apikey': supabaseAnonKey,
         },
         body: JSON.stringify({
@@ -293,7 +553,7 @@ export function PortiaPanel({
       if (!reader) throw new Error('No response body')
 
       const decoder = new TextDecoder()
-      let rawContent = '' // full content including action blocks
+      let rawContent = ''
       let hubspotToolsUsed: string[] = []
       const collectedToolEvents: ToolEvent[] = []
       const assistantId = crypto.randomUUID()
@@ -341,7 +601,6 @@ export function PortiaPanel({
             const delta = parsed.choices?.[0]?.delta?.content ?? parsed.delta ?? ''
             if (delta) {
               rawContent += delta
-              // Filter action blocks from what we display during streaming
               const displayContent = filterActionBlocks(rawContent)
               setMessages((m) =>
                 m.map((msg) =>
@@ -357,13 +616,11 @@ export function PortiaPanel({
         }
       }
 
-      // Extract any quote action from the raw content
       const extractedAction = extractAction(rawContent)
       const cleanContent = filterActionBlocks(rawContent)
 
       let pendingAction: PendingAction | undefined
       if (extractedAction) {
-        // Guard: check discount authority
         if (extractedAction.field === 'discount_percent') {
           const maxDiscount = getMaxDiscount(profile?.authority_level ?? 1)
           if (Number(extractedAction.value) > maxDiscount) {
@@ -427,7 +684,6 @@ export function PortiaPanel({
 
   return (
     <div className="flex flex-col h-full">
-      {/* Header */}
       <div className="panel-header">
         <div>
           <div className="text-sm font-semibold text-neutral-900">Portia</div>
@@ -440,7 +696,6 @@ export function PortiaPanel({
         )}
       </div>
 
-      {/* Context notice */}
       {!quoteResult && (
         <div className="mx-3 mt-3 p-3 bg-neutral-50 rounded-lg border border-neutral-200 text-xs text-neutral-500 flex gap-2">
           <Info className="w-4 h-4 flex-shrink-0 mt-0.5" />
@@ -448,7 +703,6 @@ export function PortiaPanel({
         </div>
       )}
 
-      {/* Messages */}
       <div className="flex-1 overflow-y-auto p-3 space-y-3">
         {messages.length === 0 && (
           <div className="text-center py-8">
@@ -466,7 +720,6 @@ export function PortiaPanel({
                 ? 'bg-brand-600 text-white rounded-br-sm'
                 : 'bg-neutral-100 text-neutral-800 rounded-bl-sm'
             )}>
-              {/* Tool call activity indicators */}
               {msg.role === 'assistant' && msg.toolEvents && msg.toolEvents.length > 0 && (
                 <div className="mb-2.5 space-y-1">
                   {msg.toolEvents.map((ev, i) => (
@@ -492,7 +745,6 @@ export function PortiaPanel({
                 {msg.content || <Loader2 className="w-3 h-3 animate-spin inline" />}
               </div>
 
-              {/* Pending quote action card */}
               {msg.role === 'assistant' && msg.pendingAction && msg.content && (
                 <PendingActionCard
                   pendingAction={msg.pendingAction}
@@ -501,7 +753,6 @@ export function PortiaPanel({
                 />
               )}
 
-              {/* Source trace + apply controls */}
               {msg.role === 'assistant' && msg.source_trace && msg.content && (
                 <div className="mt-2 border-t border-neutral-200 pt-2 space-y-2">
                   <button
@@ -528,7 +779,6 @@ export function PortiaPanel({
                     </div>
                   )}
 
-                  {/* Apply to proposal section */}
                   {centerMode === 'proposal' && (
                     <div>
                       {applyOpen === msg.id ? (
@@ -568,7 +818,6 @@ export function PortiaPanel({
                     </div>
                   )}
 
-                  {/* Apply to battlecard or strategy */}
                   {(centerMode === 'battlecard' || centerMode === 'strategy') && (
                     <button
                       className="flex items-center gap-1 text-xs text-brand-600 hover:text-brand-700 font-medium capitalize"
@@ -600,7 +849,6 @@ export function PortiaPanel({
         <div ref={bottomRef} />
       </div>
 
-      {/* Input */}
       <div className="flex-shrink-0 border-t border-neutral-200 p-3">
         <div className="flex gap-2">
           <input
@@ -626,8 +874,6 @@ export function PortiaPanel({
     </div>
   )
 }
-
-// ─── Pending Action Card ──────────────────────────────────────────────────────
 
 function PendingActionCard({
   pendingAction,
@@ -677,7 +923,6 @@ function PendingActionCard({
     )
   }
 
-  // pending — show confirm card
   return (
     <div className="mt-2.5 bg-brand-50 rounded-lg border border-brand-200 overflow-hidden">
       <div className="px-3 py-2 flex items-start gap-2">
@@ -708,4 +953,3 @@ function PendingActionCard({
     </div>
   )
 }
-
