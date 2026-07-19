@@ -187,7 +187,7 @@ export function CompetitorFormModal({ products, competitors, selectedProductId, 
                 <Field label="Select competitor">
                   <select value={selectedCompetitorId} onChange={e => setSelectedCompetitorId(e.target.value)} className={selectCls}>
                     <option value="">— choose —</option>
-                    {competitors.map(c => <option key={c.id} value={c.id}>{c.name}{c.category ? ` (${c.category})` : ''}</option>)}
+                    {competitors.map(c => <option key={c.id} value={c.id}>{c.name} {c.category ? `(${c.category})` : ''}</option>)}
                   </select>
                 </Field>
               )}
