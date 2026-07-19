@@ -16,8 +16,6 @@
 import { supabase } from './supabase'
 import type { Database } from '@/types/database'
 
-// ─── Row / Insert type aliases ────────────────────────────────────────────────
-
 type Tables = Database['public']['Tables']
 
 export type ProfileRow            = Tables['profiles']['Row']
@@ -40,8 +38,6 @@ export type AiEventInsert         = Tables['ai_events']['Insert']
 export type ProposedUpdateRow     = Tables['proposed_updates']['Row']
 export type QuoteSnapshotRow      = Tables['quote_snapshots']['Row']
 export type QuoteSnapshotInsert   = Tables['quote_snapshots']['Insert']
-
-// ─── Pricing ──────────────────────────────────────────────────────────────────
 
 export async function getActivePricingConfig(): Promise<{
   version: PricingConfigRow
@@ -88,8 +84,6 @@ export async function getPricingModelsForVersion(versionId: string): Promise<Pri
   return (data ?? []) as PricingModelRow[]
 }
 
-// ─── Products ─────────────────────────────────────────────────────────────────
-
 export async function getActiveProducts(): Promise<ProductRow[]> {
   const { data } = await supabase
     .from('products')
@@ -106,8 +100,6 @@ export async function getProductFacts(): Promise<ProductFactRow[]> {
     .order('fact_type')
   return (data ?? []) as ProductFactRow[]
 }
-
-// ─── Deals ────────────────────────────────────────────────────────────────────
 
 export async function getDeals(): Promise<DealRow[]> {
   const { data } = await supabase
@@ -131,10 +123,6 @@ export async function createDeal(payload: {
   return data as DealRow
 }
 
-// ─── Quote lines ──────────────────────────────────────────────────────────────
-
-/** Deletes all existing lines for a deal, then inserts fresh calculated lines.
- *  config_version_id is preserved on every row — do not remove it. */
 export async function replaceQuoteLines(
   dealId: string,
   rows: QuoteLineInsert[]
@@ -163,8 +151,6 @@ export async function getQuoteLines(dealId: string): Promise<QuoteLineRow[]> {
   return (data ?? []) as QuoteLineRow[]
 }
 
-// ─── Quote snapshots ──────────────────────────────────────────────────────────
-
 export async function saveQuoteSnapshot(row: QuoteSnapshotInsert): Promise<{ id: string | null; error: string | null }> {
   const { data, error } = await supabase
     .from('quote_snapshots')
@@ -187,8 +173,6 @@ export async function deleteQuoteSnapshot(id: string): Promise<{ error: string |
   const { error } = await supabase.from('quote_snapshots').delete().eq('id', id)
   return { error: error?.message ?? null }
 }
-
-// ─── Integration settings ─────────────────────────────────────────────────────
 
 export type IntegrationSettingsRow = Tables['integration_settings']['Row']
 
@@ -239,20 +223,14 @@ export async function deleteIntegrationSetting(provider: string): Promise<{ erro
   return { error: error?.message ?? null }
 }
 
-// ─── Quote outputs ────────────────────────────────────────────────────────────
-
 export async function insertQuoteOutput(row: QuoteOutputInsert): Promise<{ error: string | null }> {
   const { error } = await supabase.from('quote_outputs').insert(row)
   return { error: error?.message ?? null }
 }
 
-// ─── AI events ────────────────────────────────────────────────────────────────
-
 export async function logAiEvent(event: AiEventInsert): Promise<void> {
   await supabase.from('ai_events').insert(event)
 }
-
-// ─── Profiles ─────────────────────────────────────────────────────────────────
 
 export async function getProfiles(): Promise<ProfileRow[]> {
   const { data } = await supabase
@@ -289,8 +267,6 @@ export async function upsertProfileAuthLink(
     .update({ auth_user_id: authUserId })
     .eq('id', profileId)
 }
-
-// ─── Portia sessions ──────────────────────────────────────────────────────────
 
 export async function getOrCreatePortiaSession(
   dealId: string,
@@ -334,8 +310,6 @@ export async function insertPortiaMessage(msg: {
 }): Promise<void> {
   await supabase.from('portia_messages').insert(msg)
 }
-
-// ─── Competitive ──────────────────────────────────────────────────────────────
 
 export async function getCompetitors(): Promise<CompetitorRow[]> {
   const { data } = await supabase.from('competitors').select('*').order('name')
