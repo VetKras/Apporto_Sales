@@ -61,29 +61,24 @@ export function DealWorkspace({ deal, onClose }: Props) {
   const [centerContent, setCenterContent] = useState<string>('')
   const [configError, setConfigError] = useState<string | null>(null)
 
-  // Saved quotes
   const [savedQuotes, setSavedQuotes] = useState<QuoteSnapshot[]>([])
   const [dropdownOpen, setDropdownOpen] = useState(false)
   const [loadedQuoteId, setLoadedQuoteId] = useState<string | null>(null)
   const [deletingId, setDeletingId] = useState<string | null>(null)
 
-  // HubSpot push
   const [hsModalOpen, setHsModalOpen] = useState(false)
   const [hsEmail, setHsEmail] = useState('')
   const [hsPushing, setHsPushing] = useState(false)
   const [hsResult, setHsResult] = useState<{ type: 'success' | 'error'; message: string; url?: string } | null>(null)
 
-  // Deal inputs state
   const [inputs, setInputs] = useState<Omit<DealInputs, 'deal_id'>>(EMPTY_INPUTS)
 
-  // Proposal section content (persists across quote recalculations)
   const [proposalSections, setProposalSections] = useState<ProposalSections>(PROPOSAL_SECTION_DEFAULTS)
 
   function handleProposalSectionChange(key: ProposalSectionKey, value: string) {
     setProposalSections((s) => ({ ...s, [key]: value }))
   }
 
-  // Load products, pricing config, and saved snapshots
   useEffect(() => {
     async function load() {
       const [{ data: prods }, { data: allFacts }, config, snapshots, rules] = await Promise.all([
@@ -112,7 +107,6 @@ export function DealWorkspace({ deal, onClose }: Props) {
     load()
   }, [deal.id])
 
-  // Close dropdown on outside click
   useEffect(() => {
     if (!dropdownOpen) return
     function handler(e: MouseEvent) {
@@ -131,7 +125,7 @@ export function DealWorkspace({ deal, onClose }: Props) {
       const dealInputs: DealInputs = { ...inputs, deal_id: deal.id }
       const result = calculateQuote(dealInputs, configVersion, pricingModels, pricingRules)
       setQuoteResult(result)
-      setLoadedQuoteId(null) // unsaved changes
+      setLoadedQuoteId(null)
     } finally {
       setCalculating(false)
     }
@@ -142,7 +136,6 @@ export function DealWorkspace({ deal, onClose }: Props) {
     setSaving(true)
     setConfigError(null)
 
-    // Auto-name: "Quote N"
     const n = savedQuotes.length + 1
     const name = `Quote ${n}`
 
@@ -162,7 +155,6 @@ export function DealWorkspace({ deal, onClose }: Props) {
       return
     }
 
-    // Refresh snapshot list
     const updated = await loadQuoteSnapshots(deal.id)
     setSavedQuotes(updated)
     if (snapshotResult.id) setLoadedQuoteId(snapshotResult.id)
@@ -247,7 +239,6 @@ export function DealWorkspace({ deal, onClose }: Props) {
   return (
     <>
     <div className="flex h-full overflow-hidden">
-      {/* Left panel — inputs */}
       <div className="w-80 flex-shrink-0 panel-base">
         <div className="panel-header">
           <div className="flex items-center gap-2 min-w-0">
@@ -289,7 +280,6 @@ export function DealWorkspace({ deal, onClose }: Props) {
         </div>
       </div>
 
-      {/* Center panel — output workspace */}
       <div className="flex-1 flex flex-col min-w-0 border-r border-neutral-200">
         <div className="panel-header">
           <div className="flex items-center gap-1">
@@ -310,7 +300,6 @@ export function DealWorkspace({ deal, onClose }: Props) {
           </div>
 
           <div className="flex items-center gap-2">
-            {/* Saved quotes dropdown */}
             <div className="relative" data-quotes-dropdown>
               <button
                 onClick={() => setDropdownOpen((o) => !o)}
@@ -402,7 +391,6 @@ export function DealWorkspace({ deal, onClose }: Props) {
         </div>
       </div>
 
-      {/* Right panel — Portia */}
       <div className="w-80 flex-shrink-0 panel-base border-r-0">
         <PortiaPanel
           deal={deal}
@@ -420,11 +408,9 @@ export function DealWorkspace({ deal, onClose }: Props) {
       </div>
     </div>
 
-    {/* HubSpot push modal */}
     {hsModalOpen && (
       <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
         <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md mx-4 overflow-hidden">
-          {/* Modal header */}
           <div className="flex items-center justify-between px-5 py-4 border-b border-neutral-200">
             <div className="flex items-center gap-3">
               <div className="w-8 h-8 rounded-lg bg-[#FF7A59] flex items-center justify-center flex-shrink-0">
@@ -440,9 +426,7 @@ export function DealWorkspace({ deal, onClose }: Props) {
             </button>
           </div>
 
-          {/* Modal body */}
           <div className="px-5 py-4 space-y-4">
-            {/* Deal summary */}
             <div className="bg-neutral-50 rounded-lg px-4 py-3 text-sm space-y-1">
               <div className="flex justify-between">
                 <span className="text-neutral-500">Deal name</span>
@@ -456,7 +440,6 @@ export function DealWorkspace({ deal, onClose }: Props) {
               </div>
             </div>
 
-            {/* Contact email (optional) */}
             <div>
               <label className="label-base">Contact email (optional)</label>
               <input
@@ -472,7 +455,6 @@ export function DealWorkspace({ deal, onClose }: Props) {
               </p>
             </div>
 
-            {/* Result feedback */}
             {hsResult && (
               <div className={cn(
                 'text-xs px-3 py-2.5 rounded-lg border flex items-start gap-2',
@@ -500,7 +482,6 @@ export function DealWorkspace({ deal, onClose }: Props) {
             )}
           </div>
 
-          {/* Modal footer */}
           <div className="flex justify-end gap-2 px-5 py-4 border-t border-neutral-200 bg-neutral-50">
             <button className="btn-secondary" onClick={() => setHsModalOpen(false)}>
               {hsResult?.type === 'success' ? 'Close' : 'Cancel'}
