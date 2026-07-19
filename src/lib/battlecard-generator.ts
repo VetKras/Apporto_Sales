@@ -31,7 +31,6 @@ function formatProductBattleCard(
 
   sections.push(divider(`Battle Card: ${product.name}`))
 
-  // ── Product Overview ──────────────────────────────────────────────────────
   sections.push(
     `PRODUCT OVERVIEW\n` +
     `${product.positioning ?? product.description ?? '—'}\n`,
@@ -42,12 +41,10 @@ function formatProductBattleCard(
     return sections.join('\n')
   }
 
-  // Sort by threat tier
   const sorted = [...matrixRows].sort(
     (a, b) => (TIER_ORDER[a.threat_tier ?? ''] ?? 9) - (TIER_ORDER[b.threat_tier ?? ''] ?? 9),
   )
 
-  // ── Competitor Snapshots ──────────────────────────────────────────────────
   for (const row of sorted) {
     const comp = competitors.find((c) => c.id === row.competitor_id)
     const compName = comp?.name ?? 'Unknown Competitor'
@@ -141,8 +138,6 @@ export interface BattleCardResult {
 export async function generateBattleCard(
   quoteResult: QuoteResult | null,
 ): Promise<BattleCardResult> {
-  // Determine which products to build battle cards for.
-  // If we have a quote, use the selected products. Otherwise, get all active products.
   let productIds: string[] = []
   let productNames: string[] = []
 
@@ -151,7 +146,6 @@ export async function generateBattleCard(
     productNames = quoteResult.lines.map((l) => l.product_name)
   }
 
-  // Fetch products, competitors, and competitive matrix
   const [
     { data: allProducts },
     { data: competitors },
@@ -166,7 +160,6 @@ export async function generateBattleCard(
     return { content: '', productCount: 0, competitorCount: 0, hasData: false }
   }
 
-  // If no quote, use all active products
   if (productIds.length === 0) {
     productIds = allProducts.map((p) => p.id)
     productNames = allProducts.map((p) => p.name)
@@ -194,7 +187,6 @@ export async function generateBattleCard(
     }
   }
 
-  // Join all cards with separator
   const content = cards.join('\n\n' + '─'.repeat(60) + '\n\n')
 
   return {
