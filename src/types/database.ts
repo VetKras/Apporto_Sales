@@ -243,6 +243,94 @@ export interface Database {
           is_active?: boolean
         }
       }
+      cotutor_pricing_assumptions: {
+        Row: {
+          id: string
+          config_version_id: string
+          target_gross_margin: number
+          active_user_adoption_rate: number
+          fixed_infra_per_student_year: number
+          student_messages_per_assignment: number
+          validation_input_tokens_per_message: number
+          validation_output_tokens_per_message: number
+          chat_input_tokens_per_message: number
+          chat_output_tokens_per_message: number
+          chat_history_tokens_per_turn: number
+          validation_pass_rate: number
+          cache_hit_rate: number
+          chatgpt_edu_benchmark_usd_per_user_year: number | null
+          source_reference: string | null
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          config_version_id: string
+          target_gross_margin: number
+          active_user_adoption_rate: number
+          fixed_infra_per_student_year: number
+          student_messages_per_assignment: number
+          validation_input_tokens_per_message: number
+          validation_output_tokens_per_message: number
+          chat_input_tokens_per_message: number
+          chat_output_tokens_per_message: number
+          chat_history_tokens_per_turn: number
+          validation_pass_rate: number
+          cache_hit_rate: number
+          chatgpt_edu_benchmark_usd_per_user_year?: number | null
+          source_reference?: string | null
+        }
+        Update: {
+          target_gross_margin?: number
+          active_user_adoption_rate?: number
+          fixed_infra_per_student_year?: number
+          student_messages_per_assignment?: number
+          validation_input_tokens_per_message?: number
+          validation_output_tokens_per_message?: number
+          chat_input_tokens_per_message?: number
+          chat_output_tokens_per_message?: number
+          chat_history_tokens_per_turn?: number
+          validation_pass_rate?: number
+          cache_hit_rate?: number
+          chatgpt_edu_benchmark_usd_per_user_year?: number | null
+          source_reference?: string | null
+        }
+      }
+      cotutor_ai_models: {
+        Row: {
+          id: string
+          config_version_id: string
+          model_id: string
+          label: string
+          provider: string
+          input_rate_per_1m: number
+          cached_input_rate_per_1m: number
+          output_rate_per_1m: number
+          is_default: boolean
+          sort_order: number
+          created_at: string
+        }
+        Insert: {
+          config_version_id: string
+          model_id: string
+          label: string
+          provider?: string
+          input_rate_per_1m: number
+          cached_input_rate_per_1m: number
+          output_rate_per_1m: number
+          is_default?: boolean
+          sort_order?: number
+        }
+        Update: {
+          model_id?: string
+          label?: string
+          provider?: string
+          input_rate_per_1m?: number
+          cached_input_rate_per_1m?: number
+          output_rate_per_1m?: number
+          is_default?: boolean
+          sort_order?: number
+        }
+      }
       deals: {
         Row: {
           id: string

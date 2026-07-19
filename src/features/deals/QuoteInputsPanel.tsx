@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { ChevronDown, ChevronRight, AlertTriangle, AlertCircle, CheckCircle, Info, BookOpen } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { COTUTOR_MODELS, COTUTOR_DEFAULT_MODEL, type DealInputs, type SelectedProduct, type PricingModel } from '@/lib/pricing-engine'
+import { calculateCoTutorPrice, type DealInputs, type SelectedProduct, type PricingModel, type CoTutorPricingContext } from '@/lib/pricing-engine'
 import type { Database } from '@/types/database'
 
 type Product = Database['public']['Tables']['products']['Row']
@@ -11,24 +11,32 @@ interface Props {
   inputs: Omit<DealInputs, 'deal_id'>
   products: Product[]
   pricingModels: PricingModel[]
+  cotutorContext: CoTutorPricingContext | null
   productFacts: Record<string, ProductFact[]>
   onInputsChange: (inputs: Omit<DealInputs, 'deal_id'>) => void
 }
 
 const COMPLIANCE_OPTIONS = ['FERPA DPA', 'VPAT/WCAG 2.2 AA', 'LTI 1.3', 'SOC 2 Type II', 'HECVAT']
 
+// CoTutor's formula only recognizes 9 (academic year) or 12 (full year) billing months — a
+// different axis from DealInputs.contract_term (renewal length). Defaulting to 9 until a
+// dedicated field exists for it — see calculateCoTutorPrice() in pricing-engine.ts.
+const COTUTOR_CONTRACT_MONTHS_PER_YEAR = 9
+
 function defaultSelectedProduct(p: Product): SelectedProduct {
   const base: SelectedProduct = { product_id: p.id, product_slug: p.slug, product_name: p.name }
   switch (p.slug) {
-    case 'cotutor':    return { ...base, tier_name: 'Campus / Standard', ai_model: COTUTOR_DEFAULT_MODEL, assignments_per_course: 4 }
+    // ai_model intentionally left unset — buildProductLines() falls back to the config's
+    // default model (cotutor_ai_models.is_default) when none is chosen.
+    case 'cotutor':    return { ...base, assignments_per_course: 4 }
     case 'powergrader': return { ...base, pricing_type: 'per_student', tier_name: 'Per Student', assignments_per_month: 5, pages_per_submission: 1, lms_platform: 'Canvas' }
     case 'trusted':    return { ...base, trusted_tier: 'Standalone', trusted_assignments_per_month: 4, video_playback: false }
-    case 'examspace':  return { ...base, examspace_tier: 'Large', gpu_requirement: false }
+    case 'examspace':  return { ...base, examspace_tier: 'Medium', gpu_requirement: false }
     default: return base
   }
 }
 
-export function QuoteInputsPanel({ inputs, products, pricingModels, productFacts, onInputsChange }: Props) {
+export function QuoteInputsPanel({ inputs, products, pricingModels, cotutorContext, productFacts, onInputsChange }: Props) {
   const [productExpanded, setProductExpanded] = useState(true)
   const [inputsExpanded, setInputsExpanded] = useState(true)
   const [termsExpanded, setTermsExpanded] = useState(false)
@@ -77,65 +85,57 @@ export function QuoteInputsPanel({ inputs, products, pricingModels, productFacts
 
                     {p.slug === 'cotutor' && (
                       <>
-                        <Row label="Tier">
-                          <select className="select-base" value={sel.tier_name ?? 'Campus / Standard'} onChange={(e) => updateSel(p.id, { tier_name: e.target.value })}>
-                            <option value="Departmental / Premium">Departmental / Premium (≤2,000 · ${findPrice('Departmental / Premium', 'per_student') ?? '—'})</option>
-                            <option value="Campus / Standard">Campus / Standard (≤5,000 · ${findPrice('Campus / Standard', 'per_student') ?? '—'})</option>
-                            <option value="Platform / Entry">Platform / Entry (10k+ · ${findPrice('Platform / Entry', 'per_student') ?? '—'})</option>
-                          </select>
-                        </Row>
-                        <Row label="AI model">
-                          {(() => {
-                            const selectedModel = COTUTOR_MODELS.find((m) => m.id === (sel.ai_model ?? COTUTOR_DEFAULT_MODEL))
-                            const anthropicModels = COTUTOR_MODELS.filter((m) => m.provider === 'Anthropic')
-                            const openaiModels = COTUTOR_MODELS.filter((m) => m.provider === 'OpenAI')
-                            const cogsRatio = selectedModel
-                              ? (selectedModel.inputPricePerMTok / 0.20).toFixed(1)
-                              : null
-                            return (
-                              <>
+                        {!cotutorContext ? (
+                          <p className="text-xs text-amber-600">CoTutor pricing assumptions still loading…</p>
+                        ) : (() => {
+                          const models = cotutorContext.models
+                          const defaultModelId = models.find((m) => m.is_default)?.model_id ?? models[0]?.model_id
+                          const selectedModelId = sel.ai_model ?? defaultModelId
+                          const byProvider = new Map<string, typeof models>()
+                          for (const m of models) {
+                            const list = byProvider.get(m.provider) ?? []
+                            list.push(m)
+                            byProvider.set(m.provider, list)
+                          }
+                          const assignmentsPerMonth = sel.assignments_per_course ?? 4
+                          const calc = inputs.student_count > 0
+                            ? calculateCoTutorPrice(inputs.student_count, assignmentsPerMonth, COTUTOR_CONTRACT_MONTHS_PER_YEAR, selectedModelId, cotutorContext)
+                            : null
+                          return (
+                            <>
+                              <Row label="AI model">
                                 <select
                                   className="select-base"
-                                  value={sel.ai_model ?? COTUTOR_DEFAULT_MODEL}
+                                  value={selectedModelId}
                                   onChange={(e) => updateSel(p.id, { ai_model: e.target.value })}
                                 >
-                                  <optgroup label="Anthropic">
-                                    {anthropicModels.map((m) => (
-                                      <option key={m.id} value={m.id}>
-                                        {m.label} — ${m.inputPricePerMTok.toFixed(2)}/${m.outputPricePerMTok.toFixed(2)} per M tok
-                                      </option>
-                                    ))}
-                                  </optgroup>
-                                  <optgroup label="OpenAI">
-                                    {openaiModels.map((m) => (
-                                      <option key={m.id} value={m.id}>
-                                        {m.label} — ${m.inputPricePerMTok.toFixed(2)}/${m.outputPricePerMTok.toFixed(2)} per M tok
-                                      </option>
-                                    ))}
-                                  </optgroup>
+                                  {[...byProvider.entries()].map(([provider, list]) => (
+                                    <optgroup key={provider} label={provider}>
+                                      {list.map((m) => (
+                                        <option key={m.model_id} value={m.model_id}>
+                                          {m.label} — ${m.input_rate_per_1m.toFixed(2)}/${m.output_rate_per_1m.toFixed(2)} per M tok
+                                        </option>
+                                      ))}
+                                    </optgroup>
+                                  ))}
                                 </select>
-                                {selectedModel && (
-                                  <p className="text-xs text-neutral-400 mt-0.5">
-                                    {selectedModel.provider} · in ${selectedModel.inputPricePerMTok}/out ${selectedModel.outputPricePerMTok} per M tokens · {cogsRatio}× vs GPT-5.4 Nano baseline
-                                  </p>
-                                )}
-                                {selectedModel && selectedModel.inputPricePerMTok > 1.50 && selectedModel.inputPricePerMTok <= 4.00 && (
-                                  <Warn>Moderate COGS ({cogsRatio}× baseline) — verify gross margin before finalizing price.</Warn>
-                                )}
-                                {selectedModel && selectedModel.inputPricePerMTok > 4.00 && selectedModel.inputPricePerMTok <= 8.00 && (
-                                  <Warn>High COGS ({cogsRatio}× baseline) — margin review required before quoting.</Warn>
-                                )}
-                                {selectedModel && selectedModel.inputPricePerMTok > 8.00 && (
-                                  <Warn>Premium COGS ({cogsRatio}× baseline) — requires explicit leadership approval before quoting.</Warn>
-                                )}
-                              </>
-                            )
-                          })()}
-                        </Row>
-                        <Row label="Assignments/course">
-                          <input type="number" className="select-base" min={1} value={sel.assignments_per_course ?? 4} onChange={(e) => updateSel(p.id, { assignments_per_course: Number(e.target.value) || 0 })} />
-                        </Row>
-                        <OverrideRow value={sel.override_price} onChange={(v) => updateSel(p.id, { override_price: v })} />
+                              </Row>
+                              <Row label="Assignments/mo">
+                                <input type="number" className="select-base" min={1} value={sel.assignments_per_course ?? 4} onChange={(e) => updateSel(p.id, { assignments_per_course: Number(e.target.value) || 0 })} />
+                              </Row>
+                              {calc && (
+                                <p className="text-xs text-neutral-400 mt-0.5">
+                                  Formula price: ${calc.customerPricePerStudentPerYear.toFixed(2)}/student/yr
+                                  {' '}(COGS ${calc.totalBlendedCogsPerStudentPerYear.toFixed(2)}, target margin {(cotutorContext.assumptions.target_gross_margin * 100).toFixed(1)}%)
+                                </p>
+                              )}
+                              <OverrideRow value={sel.override_price} onChange={(v) => updateSel(p.id, { override_price: v })} />
+                              {sel.override_price != null && calc && sel.override_price < calc.customerPricePerStudentPerYear && (
+                                <Warn>Override is below the formula-derived price — actual margin will be lower than the {(cotutorContext.assumptions.target_gross_margin * 100).toFixed(1)}% target. Verify before quoting.</Warn>
+                              )}
+                            </>
+                          )
+                        })()}
                       </>
                     )}
 
@@ -226,10 +226,15 @@ export function QuoteInputsPanel({ inputs, products, pricingModels, productFacts
                     {p.slug === 'examspace' && (
                       <>
                         <Row label="Tier">
-                          <select className="select-base" value={sel.examspace_tier ?? 'Large'} onChange={(e) => updateSel(p.id, { examspace_tier: e.target.value })}>
-                            <option value="Large">Large — 10 apps · $16/seat-day</option>
-                            <option value="GPU">GPU — 10 apps · $23/seat-day</option>
+                          <select className="select-base" value={sel.examspace_tier ?? 'Medium'} onChange={(e) => updateSel(p.id, { examspace_tier: e.target.value })}>
+                            <option value="Container">Container (browser only) — ${findPrice('Container', 'per_student') ?? '—'}/student/yr</option>
+                            <option value="Linux">Linux — ${findPrice('Linux', 'per_student') ?? '—'}/student/yr</option>
+                            <option value="Small">Small (Windows) — ${findPrice('Small', 'per_student') ?? '—'}/student/yr</option>
+                            <option value="Medium">Medium — ${findPrice('Medium', 'per_student') ?? '—'}/student/yr</option>
+                            <option value="Large">Large — ${findPrice('Large', 'per_student') ?? '—'}/student/yr</option>
+                            <option value="GPU">GPU (Windows) — ${findPrice('GPU', 'per_student') ?? '—'}/student/yr</option>
                           </select>
+                          <p className="text-xs text-neutral-400 mt-0.5">Billed $/student/year, not $/seat-day.</p>
                         </Row>
                         <Row label="GPU required">
                           <select className="select-base" value={sel.gpu_requirement ? 'yes' : 'no'} onChange={(e) => updateSel(p.id, { gpu_requirement: e.target.value === 'yes' })}>

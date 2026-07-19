@@ -8,9 +8,9 @@ import { useAuth } from '@/contexts/AuthContext'
 import {
   calculateQuote, loadActivePricingConfig, loadPricingRules, persistQuoteLines,
   persistQuoteSnapshot, loadQuoteSnapshots, removeQuoteSnapshot,
-  buildQuoteSourceTrace, type DealInputs, type QuoteResult,
+  buildQuoteSourceTrace, loadCoTutorPricingContext, type DealInputs, type QuoteResult,
   type PricingConfigVersion, type PricingModel, type PricingRules,
-  type QuoteSnapshot, DEFAULT_RULES,
+  type QuoteSnapshot, type CoTutorPricingContext, DEFAULT_RULES,
 } from '@/lib/pricing-engine'
 import {
   PROPOSAL_SECTION_DEFAULTS,
@@ -57,6 +57,7 @@ export function DealWorkspace({ deal, onClose }: Props) {
   const [competitors, setCompetitors] = useState<Competitor[]>([])
   const [configVersion, setConfigVersion] = useState<PricingConfigVersion | null>(null)
   const [pricingModels, setPricingModels] = useState<PricingModel[]>([])
+  const [cotutorContext, setCotutorContext] = useState<CoTutorPricingContext | null>(null)
   const [quoteResult, setQuoteResult] = useState<QuoteResult | null>(null)
   const [pricingRules, setPricingRules] = useState<PricingRules>(DEFAULT_RULES)
   const [saving, setSaving] = useState(false)
@@ -108,6 +109,11 @@ export function DealWorkspace({ deal, onClose }: Props) {
       if (config) {
         setConfigVersion(config.version)
         setPricingModels(config.models)
+        try {
+          setCotutorContext(await loadCoTutorPricingContext(config.version.id))
+        } catch (e) {
+          setConfigError(`CoTutor pricing assumptions unavailable: ${e instanceof Error ? e.message : String(e)}`)
+        }
       } else {
         setConfigError('No active pricing config found. Contact your admin.')
       }
@@ -127,11 +133,12 @@ export function DealWorkspace({ deal, onClose }: Props) {
 
   function handleCalculate() {
     if (!configVersion || pricingModels.length === 0) return
+    if (!cotutorContext) { setConfigError('CoTutor pricing assumptions unavailable — cannot calculate.'); return }
     if (inputs.selected_products.length === 0) return
     setCalculating(true)
     try {
       const dealInputs: DealInputs = { ...inputs, deal_id: deal.id }
-      const result = calculateQuote(dealInputs, configVersion, pricingModels, pricingRules)
+      const result = calculateQuote(dealInputs, configVersion, pricingModels, cotutorContext, pricingRules)
       setQuoteResult(result)
       setLoadedQuoteId(null)
     } finally {
@@ -263,7 +270,7 @@ export function DealWorkspace({ deal, onClose }: Props) {
           <button
             className="btn-primary py-1.5 text-xs flex-shrink-0"
             onClick={handleCalculate}
-            disabled={calculating || !configVersion || inputs.selected_products.length === 0}
+            disabled={calculating || !configVersion || !cotutorContext || inputs.selected_products.length === 0}
           >
             <Calculator className="w-3.5 h-3.5" />
             Calculate
@@ -282,6 +289,7 @@ export function DealWorkspace({ deal, onClose }: Props) {
             inputs={inputs}
             products={products}
             pricingModels={pricingModels}
+            cotutorContext={cotutorContext}
             productFacts={productFacts}
             onInputsChange={setInputs}
           />

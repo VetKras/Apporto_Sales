@@ -1,7 +1,10 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '@/lib/supabase'
-import { loadAllPricingConfigs, loadPricingModelsForVersion, COTUTOR_MODELS, DEFAULT_RULES } from '@/lib/pricing-engine'
-import type { PricingRules } from '@/lib/pricing-engine'
+import {
+  loadAllPricingConfigs, loadPricingModelsForVersion, loadCoTutorPricingContext,
+  calculateCoTutorPrice, DEFAULT_RULES,
+} from '@/lib/pricing-engine'
+import type { PricingRules, CoTutorPricingAssumptions, CoTutorAiModel } from '@/lib/pricing-engine'
 import { upsertIntegrationSetting, getAllIntegrationSettings } from '@/lib/db'
 import { formatCurrency, cn } from '@/lib/utils'
 import { Save, Loader2, CheckCircle, AlertCircle } from 'lucide-react'
@@ -10,18 +13,18 @@ import type { Database } from '@/types/database'
 type PricingModel = Database['public']['Tables']['pricing_models']['Row']
 
 const RULES_PROVIDER = 'pricing_rules'
-const AI_COSTS_PROVIDER = 'ai_model_costs_override'
 
-export interface AiModelCosts {
-  [modelId: string]: { inputPricePerMTok: number; outputPricePerMTok: number }
-}
-
+// PowerGrader/TrustEd/ExamSpace stay in the generic tier table below — CoTutor no longer has
+// pricing_models rows (formula-driven, see the dedicated "CoTutor Pricing Engine" section).
 const PRODUCT_LABELS: Record<string, string> = {
-  'seed-product-cotutor':    'CoTutor',
   'seed-product-powergrader':'PowerGrader',
   'seed-product-trusted':    'TrustEd',
   'seed-product-examspace':  'ExamSpace',
 }
+
+// CoTutor's own reference point, matching CoTutor_Pricing_Final.xlsx's SALES_QUOTE example —
+// used only for the live preview readout below, not saved anywhere.
+const COTUTOR_REFERENCE = { students: 10000, assignmentsPerMonth: 4, contractMonthsPerYear: 9 as const }
 
 function calcMargin(price: number, cost: number): string {
   if (!price || price === 0) return '—'
@@ -32,13 +35,16 @@ export function AdminConfigTab({ profileId }: { profileId: string | null }) {
   const [models, setModels] = useState<PricingModel[]>([])
   const [editedModels, setEditedModels] = useState<Record<string, { price: string; cost: string }>>({})
   const [rules, setRules] = useState<PricingRules>(DEFAULT_RULES)
-  const [aiCosts, setAiCosts] = useState<AiModelCosts>({})
+  const [cotutorAssumptions, setCotutorAssumptions] = useState<CoTutorPricingAssumptions | null>(null)
+  const [cotutorModels, setCotutorModels] = useState<CoTutorAiModel[]>([])
+  const [editedCotutorModels, setEditedCotutorModels] = useState<Record<string, { input: string; cached: string; output: string }>>({})
   const [loading, setLoading] = useState(true)
   const [savingPrices, setSavingPrices] = useState<string | null>(null)
   const [savingRules, setSavingRules] = useState(false)
-  const [savingAi, setSavingAi] = useState(false)
+  const [savingCotutorAssumptions, setSavingCotutorAssumptions] = useState(false)
+  const [savingCotutorModels, setSavingCotutorModels] = useState(false)
   const [toast, setToast] = useState<{ type: 'success' | 'error'; msg: string } | null>(null)
-  const [section, setSection] = useState<'prices' | 'rules' | 'ai'>('prices')
+  const [section, setSection] = useState<'prices' | 'rules' | 'cotutor'>('prices')
 
   function showToast(type: 'success' | 'error', msg: string) {
     setToast({ type, msg })
@@ -53,7 +59,10 @@ export function AdminConfigTab({ profileId }: { profileId: string | null }) {
       ])
       const active = configs.find((c) => c.is_active)
       if (active) {
-        const mods = await loadPricingModelsForVersion(active.id)
+        const [mods, cotutorCtx] = await Promise.all([
+          loadPricingModelsForVersion(active.id),
+          loadCoTutorPricingContext(active.id).catch(() => null),
+        ])
         setModels(mods)
         const init: Record<string, { price: string; cost: string }> = {}
         mods.forEach((m) => {
@@ -63,6 +72,20 @@ export function AdminConfigTab({ profileId }: { profileId: string | null }) {
           }
         })
         setEditedModels(init)
+
+        if (cotutorCtx) {
+          setCotutorAssumptions(cotutorCtx.assumptions)
+          setCotutorModels(cotutorCtx.models)
+          const initModels: Record<string, { input: string; cached: string; output: string }> = {}
+          cotutorCtx.models.forEach((m) => {
+            initModels[m.id] = {
+              input: String(m.input_rate_per_1m),
+              cached: String(m.cached_input_rate_per_1m),
+              output: String(m.output_rate_per_1m),
+            }
+          })
+          setEditedCotutorModels(initModels)
+        }
       }
 
       const rulesRow = settings.find((s) => s.provider === RULES_PROVIDER)
@@ -70,15 +93,58 @@ export function AdminConfigTab({ profileId }: { profileId: string | null }) {
         try { setRules({ ...DEFAULT_RULES, ...JSON.parse(rulesRow.api_key) }) } catch {}
       }
 
-      const aiRow = settings.find((s) => s.provider === AI_COSTS_PROVIDER)
-      if (aiRow?.api_key) {
-        try { setAiCosts(JSON.parse(aiRow.api_key)) } catch {}
-      }
-
       setLoading(false)
     }
     load()
   }, [])
+
+  function updateCotutorAssumption(patch: Partial<CoTutorPricingAssumptions>) {
+    setCotutorAssumptions((prev) => (prev ? { ...prev, ...patch } : prev))
+  }
+
+  async function saveCotutorAssumptions() {
+    if (!cotutorAssumptions) return
+    setSavingCotutorAssumptions(true)
+    const { error } = await supabase
+      .from('cotutor_pricing_assumptions')
+      .update({
+        target_gross_margin: cotutorAssumptions.target_gross_margin,
+        active_user_adoption_rate: cotutorAssumptions.active_user_adoption_rate,
+        fixed_infra_per_student_year: cotutorAssumptions.fixed_infra_per_student_year,
+        student_messages_per_assignment: cotutorAssumptions.student_messages_per_assignment,
+        validation_input_tokens_per_message: cotutorAssumptions.validation_input_tokens_per_message,
+        validation_output_tokens_per_message: cotutorAssumptions.validation_output_tokens_per_message,
+        chat_input_tokens_per_message: cotutorAssumptions.chat_input_tokens_per_message,
+        chat_output_tokens_per_message: cotutorAssumptions.chat_output_tokens_per_message,
+        chat_history_tokens_per_turn: cotutorAssumptions.chat_history_tokens_per_turn,
+        validation_pass_rate: cotutorAssumptions.validation_pass_rate,
+        cache_hit_rate: cotutorAssumptions.cache_hit_rate,
+      })
+      .eq('id', cotutorAssumptions.id)
+    if (error) showToast('error', `Failed to save CoTutor assumptions: ${error.message}`)
+    else showToast('success', 'CoTutor pricing assumptions saved.')
+    setSavingCotutorAssumptions(false)
+  }
+
+  async function saveCotutorModels() {
+    setSavingCotutorModels(true)
+    const updates = cotutorModels.map((m) => {
+      const edited = editedCotutorModels[m.id]
+      return supabase
+        .from('cotutor_ai_models')
+        .update({
+          input_rate_per_1m: Number(edited?.input) || 0,
+          cached_input_rate_per_1m: Number(edited?.cached) || 0,
+          output_rate_per_1m: Number(edited?.output) || 0,
+        })
+        .eq('id', m.id)
+    })
+    const results = await Promise.all(updates)
+    const failed = results.filter((r) => r.error)
+    if (failed.length) showToast('error', `${failed.length} model row(s) failed to save.`)
+    else showToast('success', 'CoTutor AI model rates saved.')
+    setSavingCotutorModels(false)
+  }
 
   async function savePrices(productId: string) {
     const productModels = models.filter((m) => m.product_id === productId)
@@ -109,14 +175,6 @@ export function AdminConfigTab({ profileId }: { profileId: string | null }) {
     if (error) showToast('error', `Failed to save rules: ${error}`)
     else showToast('success', 'Pricing rules saved.')
     setSavingRules(false)
-  }
-
-  async function saveAiCosts() {
-    setSavingAi(true)
-    const { error } = await upsertIntegrationSetting(AI_COSTS_PROVIDER, JSON.stringify(aiCosts), profileId)
-    if (error) showToast('error', `Failed to save AI costs: ${error}`)
-    else showToast('success', 'AI model costs saved.')
-    setSavingAi(false)
   }
 
   if (loading) {
@@ -158,9 +216,9 @@ export function AdminConfigTab({ profileId }: { profileId: string | null }) {
 
       <div className="flex gap-1">
         {([
-          { id: 'prices', label: 'Product Prices & COGS' },
-          { id: 'rules',  label: 'Pricing Rules' },
-          { id: 'ai',     label: 'AI Model Costs' },
+          { id: 'prices',  label: 'Product Prices & COGS' },
+          { id: 'rules',   label: 'Pricing Rules' },
+          { id: 'cotutor', label: 'CoTutor Pricing Engine' },
         ] as const).map((s) => (
           <button
             key={s.id}
@@ -449,92 +507,152 @@ export function AdminConfigTab({ profileId }: { profileId: string | null }) {
         </div>
       )}
 
-      {section === 'ai' && (
-        <div className="space-y-4">
-          <div className="card p-5 space-y-4">
-            <h3 className="text-sm font-semibold text-neutral-900">AI Model Token Costs</h3>
-            <p className="text-xs text-neutral-500">
-              Used for CoTutor COGS calculations. Overrides the built-in rates when set.
-              Prices are USD per 1M tokens.
-            </p>
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-neutral-200">
-                  <th className="text-left py-2 pr-3 text-xs font-semibold text-neutral-500 uppercase tracking-wide">Model</th>
-                  <th className="text-left py-2 pr-3 text-xs font-semibold text-neutral-500 uppercase tracking-wide">Provider</th>
-                  <th className="text-left py-2 pr-3 text-xs font-semibold text-neutral-500 uppercase tracking-wide w-32">Input $/M tok</th>
-                  <th className="text-left py-2 text-xs font-semibold text-neutral-500 uppercase tracking-wide w-32">Output $/M tok</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-neutral-100">
-                {COTUTOR_MODELS.map((m) => {
-                  const override = aiCosts[m.id]
-                  return (
-                    <tr key={m.id}>
-                      <td className="py-2 pr-3 text-neutral-800 font-medium text-xs">{m.label}</td>
-                      <td className="py-2 pr-3">
-                        <span className={cn(
-                          'text-xs px-1.5 py-0.5 rounded font-medium',
-                          m.provider === 'Anthropic' ? 'bg-orange-100 text-orange-700' : 'bg-emerald-100 text-emerald-700'
-                        )}>
-                          {m.provider}
-                        </span>
-                      </td>
-                      <td className="py-2 pr-3">
-                        <div className="flex items-center">
-                          <span className="inline-flex items-center px-2 h-8 rounded-l-md border border-r-0 border-neutral-300 bg-neutral-50 text-neutral-500 text-xs select-none">$</span>
-                          <input
-                            type="number"
-                            step="0.01"
-                            min="0"
-                            placeholder={String(m.inputPricePerMTok)}
-                            className="input-base py-1 text-sm w-full rounded-l-none border-l-0"
-                            value={override?.inputPricePerMTok ?? ''}
-                            onChange={(e) => setAiCosts((prev) => ({
-                              ...prev,
-                              [m.id]: {
-                                inputPricePerMTok: Number(e.target.value),
-                                outputPricePerMTok: prev[m.id]?.outputPricePerMTok ?? m.outputPricePerMTok,
-                              },
-                            }))}
-                          />
-                        </div>
-                      </td>
-                      <td className="py-2">
-                        <div className="flex items-center">
-                          <span className="inline-flex items-center px-2 h-8 rounded-l-md border border-r-0 border-neutral-300 bg-neutral-50 text-neutral-500 text-xs select-none">$</span>
-                          <input
-                            type="number"
-                            step="0.01"
-                            min="0"
-                            placeholder={String(m.outputPricePerMTok)}
-                            className="input-base py-1 text-sm w-full rounded-l-none border-l-0"
-                            value={override?.outputPricePerMTok ?? ''}
-                            onChange={(e) => setAiCosts((prev) => ({
-                              ...prev,
-                              [m.id]: {
-                                inputPricePerMTok: prev[m.id]?.inputPricePerMTok ?? m.inputPricePerMTok,
-                                outputPricePerMTok: Number(e.target.value),
-                              },
-                            }))}
-                          />
-                        </div>
-                      </td>
-                    </tr>
+      {section === 'cotutor' && (
+        <div className="space-y-6">
+          {!cotutorAssumptions ? (
+            <p className="text-sm text-neutral-400">CoTutor pricing assumptions unavailable — check that migration 021 has been applied.</p>
+          ) : (
+            <>
+              <div className="card p-5 space-y-4">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h3 className="text-sm font-semibold text-neutral-900">Business Levers</h3>
+                    <p className="text-xs text-neutral-500 mt-0.5">The three numbers that set CoTutor's price. Changing these changes every future quote immediately.</p>
+                  </div>
+                  <button className="btn-primary py-1.5 text-xs flex items-center gap-1.5" onClick={saveCotutorAssumptions} disabled={savingCotutorAssumptions}>
+                    {savingCotutorAssumptions ? <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Saving…</> : <><Save className="w-3.5 h-3.5" /> Save</>}
+                  </button>
+                </div>
+                <div className="grid grid-cols-3 gap-4">
+                  <div>
+                    <label className="label-base">Target Gross Margin %</label>
+                    <div className="flex items-center gap-1">
+                      <input type="number" min="0" max="94" step="0.1" className="input-base py-1.5 text-sm"
+                        value={(cotutorAssumptions.target_gross_margin * 100).toFixed(1)}
+                        onChange={(e) => updateCotutorAssumption({ target_gross_margin: Number(e.target.value) / 100 })} />
+                      <span className="text-neutral-500 text-sm">%</span>
+                    </div>
+                    <p className="text-xs text-neutral-400 mt-1">$1.00 of cost becomes ${(1 / (1 - cotutorAssumptions.target_gross_margin)).toFixed(2)} of price. Raise → price up.</p>
+                  </div>
+                  <div>
+                    <label className="label-base">Active User Adoption %</label>
+                    <div className="flex items-center gap-1">
+                      <input type="number" min="1" max="100" step="1" className="input-base py-1.5 text-sm"
+                        value={(cotutorAssumptions.active_user_adoption_rate * 100).toFixed(0)}
+                        onChange={(e) => updateCotutorAssumption({ active_user_adoption_rate: Number(e.target.value) / 100 })} />
+                      <span className="text-neutral-500 text-sm">%</span>
+                    </div>
+                    <p className="text-xs text-neutral-400 mt-1">Share of enrolled students assumed to actually use CoTutor. Raise → assumed AI bill up → price up.</p>
+                  </div>
+                  <div>
+                    <label className="label-base">Fixed Infra $/Student/Yr</label>
+                    <div className="flex items-center gap-1">
+                      <span className="text-neutral-500 text-sm">$</span>
+                      <input type="number" min="0" step="0.01" className="input-base py-1.5 text-sm"
+                        value={cotutorAssumptions.fixed_infra_per_student_year}
+                        onChange={(e) => updateCotutorAssumption({ fixed_infra_per_student_year: Number(e.target.value) })} />
+                    </div>
+                    <p className="text-xs text-neutral-400 mt-1">Servers, DB, auth — owed even if a student never opens CoTutor.</p>
+                  </div>
+                </div>
+                {cotutorModels.length > 0 && (() => {
+                  const defaultModel = cotutorModels.find((m) => m.is_default) ?? cotutorModels[0]
+                  const preview = calculateCoTutorPrice(
+                    COTUTOR_REFERENCE.students, COTUTOR_REFERENCE.assignmentsPerMonth, COTUTOR_REFERENCE.contractMonthsPerYear,
+                    defaultModel.model_id, { assumptions: cotutorAssumptions, models: cotutorModels }
                   )
-                })}
-              </tbody>
-            </table>
-            <p className="text-xs text-neutral-400">Leave blank to use the built-in default rates.</p>
-          </div>
+                  return (
+                    <p className="text-xs text-neutral-500 bg-neutral-50 rounded px-3 py-2 border border-neutral-200">
+                      Reference price at {COTUTOR_REFERENCE.students.toLocaleString()} students / {defaultModel.label} / {COTUTOR_REFERENCE.assignmentsPerMonth} assignments-mo / {COTUTOR_REFERENCE.contractMonthsPerYear}-month contract:{' '}
+                      <span className="font-semibold text-neutral-800">${preview.customerPricePerStudentPerYear.toFixed(2)}/student/yr</span>
+                      {' '}(COGS ${preview.totalBlendedCogsPerStudentPerYear.toFixed(2)}, ACV {formatCurrency(preview.totalAnnualContractValue)})
+                    </p>
+                  )
+                })()}
+              </div>
 
-          <button
-            className="btn-primary flex items-center gap-2"
-            onClick={saveAiCosts}
-            disabled={savingAi}
-          >
-            {savingAi ? <><Loader2 className="w-4 h-4 animate-spin" /> Saving…</> : <><Save className="w-4 h-4" /> Save AI model costs</>}
-          </button>
+              <div className="card p-5 space-y-4">
+                <h3 className="text-sm font-semibold text-neutral-900">Technical Usage Assumptions</h3>
+                <p className="text-xs text-neutral-500">Product/eng-owned. Update as real usage telemetry comes in.</p>
+                <div className="grid grid-cols-2 gap-4">
+                  {([
+                    { key: 'student_messages_per_assignment', label: 'Messages / Assignment', pct: false, desc: 'Biggest cost lever — more messages compounds cost.' },
+                    { key: 'validation_pass_rate', label: 'Validation Pass Rate', pct: true, desc: 'Share of messages approved for the full (expensive) tutoring call.' },
+                    { key: 'cache_hit_rate', label: 'Cache Hit Rate', pct: true, desc: 'Share of input billed at the discounted cached rate.' },
+                    { key: 'validation_input_tokens_per_message', label: 'Validation Input Tok/Msg', pct: false, desc: 'Safety screen input size — no chat history included.' },
+                    { key: 'validation_output_tokens_per_message', label: 'Validation Output Tok/Msg', pct: false, desc: "Safety screen's pass/fail verdict." },
+                    { key: 'chat_input_tokens_per_message', label: 'Chat Input Tok/Msg', pct: false, desc: 'Turn-1 tutoring request size — history grows on top.' },
+                    { key: 'chat_output_tokens_per_message', label: 'Chat Output Tok/Msg', pct: false, desc: "Tutor's written reply length." },
+                    { key: 'chat_history_tokens_per_turn', label: 'Chat History Tok/Turn', pct: false, desc: 'How much the conversation grows each exchange.' },
+                  ] as const).map(({ key, label, desc, pct }) => (
+                    <div key={key}>
+                      <label className="label-base">{label}</label>
+                      <div className="flex items-center gap-1">
+                        <input
+                          type="number" min="0" step={pct ? 1 : 1} className="input-base py-1.5 text-sm"
+                          value={pct ? (cotutorAssumptions[key] * 100).toFixed(0) : cotutorAssumptions[key]}
+                          onChange={(e) => updateCotutorAssumption({ [key]: pct ? Number(e.target.value) / 100 : Number(e.target.value) } as Partial<CoTutorPricingAssumptions>)}
+                        />
+                        {pct && <span className="text-neutral-500 text-sm">%</span>}
+                      </div>
+                      <p className="text-xs text-neutral-400 mt-1">{desc}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div className="card p-5 space-y-4">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h3 className="text-sm font-semibold text-neutral-900">Approved AI Models</h3>
+                    <p className="text-xs text-neutral-500 mt-0.5">Only models listed here are quotable — this is the curated list the CoTutor dropdown reads from, not a general model catalog. USD per 1M tokens.</p>
+                  </div>
+                  <button className="btn-primary py-1.5 text-xs flex items-center gap-1.5" onClick={saveCotutorModels} disabled={savingCotutorModels}>
+                    {savingCotutorModels ? <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Saving…</> : <><Save className="w-3.5 h-3.5" /> Save</>}
+                  </button>
+                </div>
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-neutral-200">
+                      <th className="text-left py-2 pr-3 text-xs font-semibold text-neutral-500 uppercase tracking-wide">Model</th>
+                      <th className="text-left py-2 pr-3 text-xs font-semibold text-neutral-500 uppercase tracking-wide">Provider</th>
+                      <th className="text-left py-2 pr-3 text-xs font-semibold text-neutral-500 uppercase tracking-wide w-28">Input $/M</th>
+                      <th className="text-left py-2 pr-3 text-xs font-semibold text-neutral-500 uppercase tracking-wide w-28">Cached $/M</th>
+                      <th className="text-left py-2 text-xs font-semibold text-neutral-500 uppercase tracking-wide w-28">Output $/M</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-neutral-100">
+                    {cotutorModels.map((m) => {
+                      const edited = editedCotutorModels[m.id] ?? { input: '', cached: '', output: '' }
+                      return (
+                        <tr key={m.id}>
+                          <td className="py-2 pr-3 text-neutral-800 font-medium text-xs">
+                            {m.label}{m.is_default && <span className="ml-1.5 text-xs bg-brand-100 text-brand-700 px-1.5 py-0.5 rounded-full font-medium">default</span>}
+                          </td>
+                          <td className="py-2 pr-3">
+                            <span className="text-xs px-1.5 py-0.5 rounded font-medium bg-emerald-100 text-emerald-700">{m.provider}</span>
+                          </td>
+                          {(['input', 'cached', 'output'] as const).map((field) => (
+                            <td key={field} className="py-2 pr-3">
+                              <div className="flex items-center">
+                                <span className="inline-flex items-center px-2 h-8 rounded-l-md border border-r-0 border-neutral-300 bg-neutral-50 text-neutral-500 text-xs select-none">$</span>
+                                <input
+                                  type="number" step="0.01" min="0"
+                                  className="input-base py-1 text-sm w-full rounded-l-none border-l-0"
+                                  value={edited[field]}
+                                  onChange={(e) => setEditedCotutorModels((prev) => ({ ...prev, [m.id]: { ...prev[m.id], [field]: e.target.value } }))}
+                                />
+                              </div>
+                            </td>
+                          ))}
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </>
+          )}
         </div>
       )}
     </div>

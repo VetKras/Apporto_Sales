@@ -25,6 +25,8 @@ export type ProductFactRow        = Tables['product_facts']['Row']
 export type PricingConfigRow      = Tables['pricing_config_versions']['Row']
 export type PricingModelRow       = Tables['pricing_models']['Row']
 export type PricingBracketRow     = Tables['pricing_brackets']['Row']
+export type CoTutorPricingAssumptionsRow = Tables['cotutor_pricing_assumptions']['Row']
+export type CoTutorAiModelRow     = Tables['cotutor_ai_models']['Row']
 export type DealRow               = Tables['deals']['Row']
 export type DealInputRow          = Tables['deal_inputs']['Row']
 export type QuoteLineRow          = Tables['quote_lines']['Row']
@@ -83,6 +85,28 @@ export async function getPricingModelsForVersion(versionId: string): Promise<Pri
     .eq('config_version_id', versionId)
     .eq('is_active', true)
   return (data ?? []) as PricingModelRow[]
+}
+
+// --- CoTutor formula-driven pricing ------------------------------------------
+
+export async function getCoTutorPricingAssumptions(versionId: string): Promise<CoTutorPricingAssumptionsRow | null> {
+  const { data, error } = await supabase
+    .from('cotutor_pricing_assumptions')
+    .select('*')
+    .eq('config_version_id', versionId)
+    .maybeSingle()
+  if (error) throw error
+  return data as CoTutorPricingAssumptionsRow | null
+}
+
+export async function getCoTutorAiModels(versionId: string): Promise<CoTutorAiModelRow[]> {
+  const { data, error } = await supabase
+    .from('cotutor_ai_models')
+    .select('*')
+    .eq('config_version_id', versionId)
+    .order('sort_order', { ascending: true })
+  if (error) throw error
+  return (data ?? []) as CoTutorAiModelRow[]
 }
 
 // --- Suite Tier pricing brackets --------------------------------------------

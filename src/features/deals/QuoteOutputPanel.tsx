@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Save, Copy, Lock, Globe, AlertTriangle, FileText, ExternalLink, Info, Sparkles } from 'lucide-react'
 import { cn, formatCurrency, formatPercent, approvalColor } from '@/lib/utils'
-import { COTUTOR_MODELS, type QuoteResult, type DealInputs } from '@/lib/pricing-engine'
+import { type QuoteResult, type DealInputs } from '@/lib/pricing-engine'
 import {
   ProposalTemplate,
   generateProposalText,
@@ -68,7 +68,7 @@ export function QuoteOutputPanel({ deal, quoteResult, mode, centerContent, onCen
     customer_status: quoteResult?.inputs_snapshot.customer_status ?? 'new',
     discount_percent: quoteResult?.discount_percent ?? 0,
     selected_products: [],
-    contract_term: quoteResult?.assumptions.contract_term ?? 'annual',
+    contract_term: (quoteResult?.assumptions.contract_term as DealInputs['contract_term']) ?? 'annual',
     tco_multiplier: quoteResult?.assumptions.tco_multiplier_used ?? 1.6,
     true_up_clause: quoteResult?.assumptions.true_up_clause ?? false,
     compliance_requirements: quoteResult?.assumptions.compliance_requirements ?? [],
@@ -247,22 +247,11 @@ export function QuoteOutputPanel({ deal, quoteResult, mode, centerContent, onCen
 
                 {(quoteResult.assumptions.ai_model_cogs_warning || quoteResult.assumptions.pages_submission_warning || quoteResult.assumptions.lms_integration_risk) && (
                   <div className="space-y-1.5">
-                    {quoteResult.assumptions.ai_model_cogs_warning && (() => {
-                      const modelDef = COTUTOR_MODELS.find((m) => m.id === quoteResult.assumptions.cotutor_ai_model)
-                      const tier = quoteResult.assumptions.cotutor_cogs_tier
-                      if (!modelDef) return null
-                      const ratio = (modelDef.inputPricePerMTok / 0.20).toFixed(1)
-                      if (tier === 'moderate') return (
-                        <WarningBadge onClick={() => navigate('/settings?tab=admin')}>CoTutor: {modelDef.label} (${modelDef.inputPricePerMTok}/M in) — {ratio}× GPT-5.4 Nano baseline COGS. Verify gross margin before sharing with customer.</WarningBadge>
-                      )
-                      if (tier === 'high') return (
-                        <WarningBadge onClick={() => navigate('/settings?tab=admin')}>CoTutor: {modelDef.label} (${modelDef.inputPricePerMTok}/M in) — {ratio}× baseline COGS. Margin review required before quoting.</WarningBadge>
-                      )
-                      if (tier === 'premium') return (
-                        <WarningBadge onClick={() => navigate('/settings?tab=admin')}>CoTutor: {modelDef.label} (${modelDef.inputPricePerMTok}/M in) — {ratio}× baseline COGS. Requires explicit leadership approval before quoting.</WarningBadge>
-                      )
-                      return null
-                    })()}
+                    {quoteResult.assumptions.ai_model_cogs_warning && (
+                      <WarningBadge onClick={() => navigate('/settings?tab=admin')}>
+                        CoTutor: actual margin ({quoteResult.assumptions.cotutor_margin_percent?.toFixed(1)}%) is running below the {quoteResult.assumptions.cotutor_target_margin_percent?.toFixed(1)}% target — the override price is compressing margin. Verify before sharing with customer.
+                      </WarningBadge>
+                    )}
                     {quoteResult.assumptions.pages_submission_warning && (
                       <WarningBadge>PowerGrader: 6-page submissions — ~5× cost swing vs 1-page. Always confirm page count with customer.</WarningBadge>
                     )}

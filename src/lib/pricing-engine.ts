@@ -10,6 +10,8 @@ import {
   getActivePricingConfig,
   getAllPricingConfigs,
   getPricingModelsForVersion,
+  getCoTutorPricingAssumptions,
+  getCoTutorAiModels,
   getIntegrationSetting,
   replaceQuoteLines,
   saveQuoteSnapshot,
@@ -17,45 +19,112 @@ import {
   deleteQuoteSnapshot,
   logAiEvent,
 } from '@/lib/db'
-import type { PricingConfigRow, PricingModelRow, QuoteSnapshotRow } from '@/lib/db'
+import type {
+  PricingConfigRow,
+  PricingModelRow,
+  QuoteSnapshotRow,
+  CoTutorPricingAssumptionsRow,
+  CoTutorAiModelRow,
+} from '@/lib/db'
 
 export type PricingModel = PricingModelRow
 export type PricingConfigVersion = PricingConfigRow
 export type QuoteSnapshot = QuoteSnapshotRow
+export type CoTutorPricingAssumptions = CoTutorPricingAssumptionsRow
+export type CoTutorAiModel = CoTutorAiModelRow
 
-export interface CoTutorModelDef {
-  id: string
-  label: string
-  provider: 'Anthropic' | 'OpenAI'
-  inputPricePerMTok: number
-  outputPricePerMTok: number
+/**
+ * CoTutor formula-driven pricing. Replaces the old flat 20/15/10 tiers and the hardcoded
+ * (partly fabricated — it included Claude models that never existed in the real cost model)
+ * COTUTOR_MODELS catalog. Assumptions and model rates now come from cotutor_pricing_assumptions
+ * and cotutor_ai_models, loaded once per active config version (see loadCoTutorPricingContext()).
+ */
+export interface CoTutorPricingContext {
+  assumptions: CoTutorPricingAssumptionsRow
+  models: CoTutorAiModelRow[]
 }
 
-export const COTUTOR_MODELS: CoTutorModelDef[] = [
-  { id: 'gpt-5.4-nano',  label: 'GPT-5.4 Nano',  provider: 'OpenAI',    inputPricePerMTok: 0.20,  outputPricePerMTok: 1.25 },
-  { id: 'gpt-5.4-mini',  label: 'GPT-5.4 Mini',  provider: 'OpenAI',    inputPricePerMTok: 0.75,  outputPricePerMTok: 4.50 },
-  { id: 'gpt-5.4',       label: 'GPT-5.4',        provider: 'OpenAI',    inputPricePerMTok: 2.50,  outputPricePerMTok: 15.00 },
-  { id: 'gpt-5.5',       label: 'GPT-5.5',        provider: 'OpenAI',    inputPricePerMTok: 5.00,  outputPricePerMTok: 30.00 },
-  { id: 'claude-haiku-4-5',  label: 'Claude Haiku 4.5',  provider: 'Anthropic', inputPricePerMTok: 1.00,  outputPricePerMTok: 5.00 },
-  { id: 'claude-sonnet-4-6', label: 'Claude Sonnet 4.6', provider: 'Anthropic', inputPricePerMTok: 3.00,  outputPricePerMTok: 15.00 },
-  { id: 'claude-opus-4-8',   label: 'Claude Opus 4.8',   provider: 'Anthropic', inputPricePerMTok: 5.00,  outputPricePerMTok: 25.00 },
-  { id: 'claude-fable-5',    label: 'Claude Fable 5',    provider: 'Anthropic', inputPricePerMTok: 10.00, outputPricePerMTok: 50.00 },
-]
-
-const COTUTOR_MODEL_MAP = new Map(COTUTOR_MODELS.map((m) => [m.id, m]))
-
-export const COTUTOR_DEFAULT_MODEL = 'claude-haiku-4-5'
-
-function cotutorCogsTier(model: CoTutorModelDef | undefined): 'standard' | 'moderate' | 'high' | 'premium' {
-  if (!model) return 'standard'
-  const p = model.inputPricePerMTok
-  if (p <= 1.50) return 'standard'
-  if (p <= 4.00) return 'moderate'
-  if (p <= 8.00) return 'high'
-  return 'premium'
+export interface CoTutorCalculation {
+  model: CoTutorAiModelRow
+  apiCostPerAssignment: number
+  apiCostPerActiveStudentPerYear: number
+  blendedApiCostPerEnrolledStudentPerYear: number
+  totalBlendedCogsPerStudentPerYear: number
+  customerPricePerStudentPerYear: number
+  totalAnnualContractValue: number
 }
 
-export type CoTutorCogsTier = 'standard' | 'moderate' | 'high' | 'premium'
+export async function loadCoTutorPricingContext(configVersionId: string): Promise<CoTutorPricingContext> {
+  const [assumptions, models] = await Promise.all([
+    getCoTutorPricingAssumptions(configVersionId),
+    getCoTutorAiModels(configVersionId),
+  ])
+  if (!assumptions) throw new Error(`No CoTutor pricing assumptions found for config version ${configVersionId}`)
+  if (models.length === 0) throw new Error(`No CoTutor AI models found for config version ${configVersionId}`)
+  return { assumptions, models }
+}
+
+/**
+ * Direct port of CoTutor_Pricing_Final.xlsx BACKEND_ASSUMPTIONS + SALES_QUOTE sheets.
+ * Every intermediate name below matches the workbook's row labels 1:1 so this can be checked
+ * cell-by-cell against the source. Do not simplify the intermediate steps away.
+ *
+ * Reference check (do not remove): at studentCount=10000, assignmentsPerMonth=4,
+ * contractMonthsPerYear=9, modelId='gpt-5.4-mini', with the seeded assumptions, this must return
+ * customerPricePerStudentPerYear === 24.01 and totalAnnualContractValue === 240103.75. If it
+ * doesn't match to the cent, there's a transcription error — diff against the xlsx cell-by-cell
+ * rather than adjusting the formula to force a match.
+ */
+export function calculateCoTutorPrice(
+  studentCount: number,
+  assignmentsPerMonth: number,
+  contractMonthsPerYear: number,
+  modelId: string,
+  ctx: CoTutorPricingContext
+): CoTutorCalculation {
+  const model = ctx.models.find((m) => m.model_id === modelId) ?? ctx.models.find((m) => m.is_default)
+  if (!model) throw new Error(`No CoTutor AI model found for "${modelId}" and no default configured`)
+  const a = ctx.assumptions
+
+  const expectedChatCallsPerAssignment = a.student_messages_per_assignment * a.validation_pass_rate
+  const cumulativeHistoryTokenTurns = (a.student_messages_per_assignment * (a.student_messages_per_assignment - 1)) / 2
+  const validationInputTokensPerAssignment = a.student_messages_per_assignment * a.validation_input_tokens_per_message
+  const chatInputTokensPerAssignment =
+    expectedChatCallsPerAssignment * a.chat_input_tokens_per_message +
+    a.validation_pass_rate * cumulativeHistoryTokenTurns * a.chat_history_tokens_per_turn
+  const totalInputTokensPerAssignment = validationInputTokensPerAssignment + chatInputTokensPerAssignment
+  const outputTokensPerAssignment =
+    a.student_messages_per_assignment * a.validation_output_tokens_per_message +
+    expectedChatCallsPerAssignment * a.chat_output_tokens_per_message
+
+  const apiCostPerAssignment =
+    (totalInputTokensPerAssignment * (1 - a.cache_hit_rate) / 1_000_000) * model.input_rate_per_1m +
+    (totalInputTokensPerAssignment * a.cache_hit_rate / 1_000_000) * model.cached_input_rate_per_1m +
+    (outputTokensPerAssignment / 1_000_000) * model.output_rate_per_1m
+
+  const apiCostPerActiveStudentPerYear = apiCostPerAssignment * assignmentsPerMonth * contractMonthsPerYear
+  const blendedApiCostPerEnrolledStudentPerYear = apiCostPerActiveStudentPerYear * a.active_user_adoption_rate
+  const totalBlendedCogsPerStudentPerYear = blendedApiCostPerEnrolledStudentPerYear + a.fixed_infra_per_student_year
+  const customerPricePerStudentPerYear = totalBlendedCogsPerStudentPerYear / (1 - a.target_gross_margin)
+  const totalAnnualContractValue = customerPricePerStudentPerYear * studentCount
+
+  return {
+    model,
+    apiCostPerAssignment: round2(apiCostPerAssignment),
+    apiCostPerActiveStudentPerYear: round2(apiCostPerActiveStudentPerYear),
+    blendedApiCostPerEnrolledStudentPerYear: round2(blendedApiCostPerEnrolledStudentPerYear),
+    totalBlendedCogsPerStudentPerYear: round2(totalBlendedCogsPerStudentPerYear),
+    customerPricePerStudentPerYear: round2(customerPricePerStudentPerYear),
+    totalAnnualContractValue: round2(totalAnnualContractValue),
+  }
+}
+
+/** CoTutor billing months per year — workbook recognizes 9 (academic year) or 12 (full year) only.
+ *  DealInputs.contract_term (annual/2-year/3-year) is renewal length, a different axis from this.
+ *  Defaulting to 9 (academic year) until SelectedProduct exposes an explicit field for it. */
+function cotutorContractMonthsPerYear(): 9 | 12 {
+  return 9
+}
 
 export interface DealInputs {
   deal_id: string
@@ -131,9 +200,16 @@ export interface QuoteResult {
 export interface QuoteAssumptions {
   estimated_assignments_per_year: number | null
   estimated_exam_days_per_year: number | null
+  /** True only when an override_price has compressed CoTutor's actual margin materially
+   *  below the configured target margin — the formula-derived price always hits target
+   *  margin exactly, so this can only fire when a rep has manually overridden the price. */
   ai_model_cogs_warning: boolean
   cotutor_ai_model: string | null
-  cotutor_cogs_tier: CoTutorCogsTier | null
+  /** Actual computed gross margin % for the CoTutor line (from calculateCoTutorPrice()),
+   *  replaces the old coarse standard/moderate/high/premium guess. Null if CoTutor isn't
+   *  in the deal. */
+  cotutor_margin_percent: number | null
+  cotutor_target_margin_percent: number | null
   pages_submission_warning: boolean
   lms_integration_risk: string | null
   video_playback_surcharge_per_student: number | null
@@ -226,12 +302,13 @@ export function calculateQuote(
   inputs: DealInputs,
   version: PricingConfigVersion,
   models: PricingModel[],
+  cotutorContext: CoTutorPricingContext,
   rules: PricingRules = DEFAULT_RULES
 ): QuoteResult {
   const lines: QuoteLine[] = []
 
   for (const sel of inputs.selected_products) {
-    lines.push(...buildProductLines(sel, inputs, models, version.id))
+    lines.push(...buildProductLines(sel, inputs, models, version.id, cotutorContext))
   }
 
   const list_total = lines.reduce((s, l) => s + l.list_price, 0)
@@ -288,17 +365,19 @@ export function calculateQuote(
     )
     .map((s) => s.product_name)
 
+  const cotutorLine = cotutorSel ? linesWithDiscount.find((l) => l.product_id === cotutorSel.product_id) : undefined
+  const targetMarginPercent = round2(cotutorContext.assumptions.target_gross_margin * 100)
+  const cotutorMarginPercent = cotutorLine?.margin_percent ?? null
+
   const assumptions: QuoteAssumptions = {
     estimated_assignments_per_year: inputs.course_sections > 0 ? inputs.course_sections * 6 : null,
     estimated_exam_days_per_year: inputs.course_sections > 0 ? inputs.course_sections * 2 : null,
-    ai_model_cogs_warning: (() => {
-      const tier = cotutorCogsTier(COTUTOR_MODEL_MAP.get(cotutorSel?.ai_model ?? ''))
-      return tier === 'moderate' || tier === 'high' || tier === 'premium'
-    })(),
+    // The formula-derived price always hits target margin exactly — this can only fire when an
+    // override_price has compressed the actual margin more than 5 points below target.
+    ai_model_cogs_warning: cotutorMarginPercent != null && cotutorMarginPercent < targetMarginPercent - 5,
     cotutor_ai_model: cotutorSel?.ai_model ?? null,
-    cotutor_cogs_tier: cotutorSel?.ai_model
-      ? cotutorCogsTier(COTUTOR_MODEL_MAP.get(cotutorSel.ai_model))
-      : null,
+    cotutor_margin_percent: cotutorMarginPercent,
+    cotutor_target_margin_percent: cotutorSel ? targetMarginPercent : null,
     pages_submission_warning: pgSel?.pages_per_submission === 6,
     lms_integration_risk: lmsRisk,
     video_playback_surcharge_per_student: trustedSel?.video_playback ? 6 : null,
@@ -333,7 +412,8 @@ function buildProductLines(
   sel: SelectedProduct,
   inputs: DealInputs,
   models: PricingModel[],
-  configVersionId: string
+  configVersionId: string,
+  cotutorContext: CoTutorPricingContext
 ): QuoteLine[] {
   const find = (tierName: string | null, pricingType: string | null) =>
     models.find(
@@ -345,10 +425,33 @@ function buildProductLines(
 
   switch (sel.product_slug) {
     case 'cotutor': {
-      const tier = sel.tier_name ?? 'Campus / Standard'
-      const model = find(tier, 'per_student')
-      if (!model) return []
-      return [makeLine(sel, model, tier, inputs.student_count, 'students/year', sel.override_price ?? model.default_price ?? 0, configVersionId)]
+      const modelId = sel.ai_model ?? cotutorContext.models.find((m) => m.is_default)?.model_id ?? cotutorContext.models[0].model_id
+      const assignmentsPerMonth = sel.assignments_per_course ?? 4
+      const calc = calculateCoTutorPrice(
+        inputs.student_count,
+        assignmentsPerMonth,
+        cotutorContractMonthsPerYear(),
+        modelId,
+        cotutorContext
+      )
+      const unitPrice = sel.override_price ?? calc.customerPricePerStudentPerYear
+      return [{
+        product_id: sel.product_id,
+        product_name: sel.product_name,
+        // No longer a pricing_models row lookup — formula-driven, not a flat tier.
+        pricing_model_id: null,
+        tier_label: calc.model.label,
+        quantity: inputs.student_count,
+        unit: 'students/year',
+        unit_price: unitPrice,
+        list_price: round2(unitPrice * inputs.student_count),
+        discount_amount: 0,
+        net_price: round2(unitPrice * inputs.student_count),
+        unit_cost: calc.totalBlendedCogsPerStudentPerYear,
+        total_cost: round2(calc.totalBlendedCogsPerStudentPerYear * inputs.student_count),
+        margin_percent: null,
+        config_version_id: configVersionId,
+      }]
     }
 
     case 'powergrader': {
@@ -401,12 +504,14 @@ function buildProductLines(
     }
 
     case 'examspace': {
+      // Per-student annual pricing (exam_desktop_cost_v2026.xlsx) — six tiers: Container, Linux,
+      // Small, Medium, Large, GPU. Replaces the old $/seat-day model; quantity is now student_count,
+      // matching CoTutor/PowerGrader/TrustEd, not seats_per_exam_day × exam_days.
       const result: QuoteLine[] = []
-      const desktopTier = sel.examspace_tier ?? 'Large'
-      const model = find(desktopTier, 'per_seat_day')
+      const desktopTier = sel.examspace_tier ?? 'Medium'
+      const model = find(desktopTier, 'per_student')
       if (model) {
-        const qty = (inputs.seats_per_exam_day || 0) * (inputs.exam_days || 0)
-        result.push(makeLine(sel, model, `${desktopTier} Desktop`, qty, 'seat-days/year', sel.override_price ?? model.default_price ?? 0, configVersionId))
+        result.push(makeLine(sel, model, `${desktopTier} Desktop`, inputs.student_count, 'students/year', sel.override_price ?? model.default_price ?? 0, configVersionId))
       }
       if (inputs.customer_status === 'new') {
         const pfModel = find('Platform Fee', 'platform_fee')
