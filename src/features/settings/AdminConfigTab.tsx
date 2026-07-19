@@ -9,16 +9,12 @@ import type { Database } from '@/types/database'
 
 type PricingModel = Database['public']['Tables']['pricing_models']['Row']
 
-// ─── Pricing rules stored as JSON in integration_settings ─────────────────────
-
 const RULES_PROVIDER = 'pricing_rules'
 const AI_COSTS_PROVIDER = 'ai_model_costs_override'
 
 export interface AiModelCosts {
   [modelId: string]: { inputPricePerMTok: number; outputPricePerMTok: number }
 }
-
-// ─── Group pricing models by product ─────────────────────────────────────────
 
 const PRODUCT_LABELS: Record<string, string> = {
   'seed-product-cotutor':    'CoTutor',
@@ -31,8 +27,6 @@ function calcMargin(price: number, cost: number): string {
   if (!price || price === 0) return '—'
   return `${(((price - cost) / price) * 100).toFixed(1)}%`
 }
-
-// ─── Main component ────────────────────────────────────────────────────────────
 
 export function AdminConfigTab({ profileId }: { profileId: string | null }) {
   const [models, setModels] = useState<PricingModel[]>([])
@@ -86,8 +80,6 @@ export function AdminConfigTab({ profileId }: { profileId: string | null }) {
     load()
   }, [])
 
-  // ── Save a product group's prices to DB ────────────────────────────────────
-
   async function savePrices(productId: string) {
     const productModels = models.filter((m) => m.product_id === productId)
     setSavingPrices(productId)
@@ -111,8 +103,6 @@ export function AdminConfigTab({ profileId }: { profileId: string | null }) {
     setSavingPrices(null)
   }
 
-  // ── Save pricing rules ─────────────────────────────────────────────────────
-
   async function saveRules() {
     setSavingRules(true)
     const { error } = await upsertIntegrationSetting(RULES_PROVIDER, JSON.stringify(rules), profileId)
@@ -120,8 +110,6 @@ export function AdminConfigTab({ profileId }: { profileId: string | null }) {
     else showToast('success', 'Pricing rules saved.')
     setSavingRules(false)
   }
-
-  // ── Save AI model cost overrides ───────────────────────────────────────────
 
   async function saveAiCosts() {
     setSavingAi(true)
@@ -147,7 +135,6 @@ export function AdminConfigTab({ profileId }: { profileId: string | null }) {
 
   return (
     <div className="max-w-3xl space-y-6">
-      {/* Toast */}
       {toast && (
         <div className={cn(
           'fixed top-4 right-4 z-50 flex items-center gap-2 px-4 py-3 rounded-lg shadow-lg text-sm font-medium border',
@@ -169,7 +156,6 @@ export function AdminConfigTab({ profileId }: { profileId: string | null }) {
         </p>
       </div>
 
-      {/* Sub-nav */}
       <div className="flex gap-1">
         {([
           { id: 'prices', label: 'Product Prices & COGS' },
@@ -189,7 +175,6 @@ export function AdminConfigTab({ profileId }: { profileId: string | null }) {
         ))}
       </div>
 
-      {/* ── Product Prices & COGS ─────────────────────────────────────────────── */}
       {section === 'prices' && (
         <div className="space-y-6">
           {productGroups.map(({ productId, label, models: pModels }) => (
@@ -229,30 +214,36 @@ export function AdminConfigTab({ profileId }: { profileId: string | null }) {
                           <td className="py-2 pr-3 text-neutral-800 font-medium text-xs">{m.tier_name}</td>
                           <td className="py-2 pr-3 text-neutral-500 text-xs">{m.unit}</td>
                           <td className="py-2 pr-3">
-                            <input
-                              type="number"
-                              step="0.01"
-                              min="0"
-                              className="input-base py-1 text-sm w-full"
-                              value={edited.price}
-                              onChange={(e) => setEditedModels((prev) => ({
-                                ...prev,
-                                [m.id]: { ...prev[m.id], price: e.target.value },
-                              }))}
-                            />
+                            <div className="flex items-center">
+                              <span className="inline-flex items-center px-2 h-8 rounded-l-md border border-r-0 border-neutral-300 bg-neutral-50 text-neutral-500 text-xs select-none">$</span>
+                              <input
+                                type="number"
+                                step="0.01"
+                                min="0"
+                                className="input-base py-1 text-sm w-full rounded-l-none border-l-0"
+                                value={edited.price}
+                                onChange={(e) => setEditedModels((prev) => ({
+                                  ...prev,
+                                  [m.id]: { ...prev[m.id], price: e.target.value },
+                                }))}
+                              />
+                            </div>
                           </td>
                           <td className="py-2 pr-3">
-                            <input
-                              type="number"
-                              step="0.01"
-                              min="0"
-                              className="input-base py-1 text-sm w-full"
-                              value={edited.cost}
-                              onChange={(e) => setEditedModels((prev) => ({
-                                ...prev,
-                                [m.id]: { ...prev[m.id], cost: e.target.value },
-                              }))}
-                            />
+                            <div className="flex items-center">
+                              <span className="inline-flex items-center px-2 h-8 rounded-l-md border border-r-0 border-neutral-300 bg-neutral-50 text-neutral-500 text-xs select-none">$</span>
+                              <input
+                                type="number"
+                                step="0.01"
+                                min="0"
+                                className="input-base py-1 text-sm w-full rounded-l-none border-l-0"
+                                value={edited.cost}
+                                onChange={(e) => setEditedModels((prev) => ({
+                                  ...prev,
+                                  [m.id]: { ...prev[m.id], cost: e.target.value },
+                                }))}
+                              />
+                            </div>
                           </td>
                           <td className="py-2">
                             <div className="flex items-center gap-1">
@@ -271,13 +262,11 @@ export function AdminConfigTab({ profileId }: { profileId: string | null }) {
                                   if (m_pct >= 100 || m_pct < 0) return
                                   const ratio = 1 - m_pct / 100
                                   if (cost > 0) {
-                                    // COGS is set → derive price = COGS / (1 - margin%)
                                     setEditedModels((prev) => ({
                                       ...prev,
                                       [m.id]: { ...prev[m.id], price: (cost / ratio).toFixed(2) },
                                     }))
                                   } else if (price > 0) {
-                                    // Price is set, COGS empty → derive COGS = price × (1 - margin%)
                                     setEditedModels((prev) => ({
                                       ...prev,
                                       [m.id]: { ...prev[m.id], cost: (price * ratio).toFixed(2) },
@@ -299,11 +288,8 @@ export function AdminConfigTab({ profileId }: { profileId: string | null }) {
         </div>
       )}
 
-      {/* ── Pricing Rules ─────────────────────────────────────────────────────── */}
       {section === 'rules' && (
         <div className="space-y-6">
-
-          {/* Approval thresholds */}
           <div className="card p-5 space-y-4">
             <h3 className="text-sm font-semibold text-neutral-900">Discount Approval Thresholds</h3>
             <p className="text-xs text-neutral-500">Discount % at or below the limit for each level can be approved by that role.</p>
@@ -335,7 +321,6 @@ export function AdminConfigTab({ profileId }: { profileId: string | null }) {
             </div>
           </div>
 
-          {/* Bundle discounts */}
           <div className="card p-5 space-y-4">
             <h3 className="text-sm font-semibold text-neutral-900">Bundle Discount Suggestions</h3>
             <p className="text-xs text-neutral-500">Suggested discount shown when a deal includes multiple products. Not auto-applied.</p>
@@ -366,7 +351,6 @@ export function AdminConfigTab({ profileId }: { profileId: string | null }) {
             </div>
           </div>
 
-          {/* TCO & Margin targets */}
           <div className="card p-5 space-y-4">
             <h3 className="text-sm font-semibold text-neutral-900">TCO & Margin Targets</h3>
             <div className="grid grid-cols-2 gap-4">
@@ -403,7 +387,6 @@ export function AdminConfigTab({ profileId }: { profileId: string | null }) {
             </div>
           </div>
 
-          {/* ExamSpace volume discounts */}
           <div className="card p-5 space-y-4">
             <h3 className="text-sm font-semibold text-neutral-900">ExamSpace Volume Discounts</h3>
             <p className="text-xs text-neutral-500">Applied automatically based on deal ARR for ExamSpace deals.</p>
@@ -418,12 +401,12 @@ export function AdminConfigTab({ profileId }: { profileId: string | null }) {
                 {rules.examspace_volume_discounts.map((row, i) => (
                   <tr key={i}>
                     <td className="py-2 pr-4">
-                      <div className="flex items-center gap-1">
-                        <span className="text-neutral-500 text-xs">$</span>
+                      <div className="flex items-center">
+                        <span className="inline-flex items-center px-2 h-8 rounded-l-md border border-r-0 border-neutral-300 bg-neutral-50 text-neutral-500 text-xs select-none">$</span>
                         <input
                           type="number"
                           min="0"
-                          className="input-base py-1 text-sm w-32"
+                          className="input-base py-1 text-sm w-32 rounded-l-none border-l-0"
                           value={row.threshold_usd}
                           onChange={(e) => {
                             const next = [...rules.examspace_volume_discounts]
@@ -466,7 +449,6 @@ export function AdminConfigTab({ profileId }: { profileId: string | null }) {
         </div>
       )}
 
-      {/* ── AI Model Costs ────────────────────────────────────────────────────── */}
       {section === 'ai' && (
         <div className="space-y-4">
           <div className="card p-5 space-y-4">
@@ -499,38 +481,44 @@ export function AdminConfigTab({ profileId }: { profileId: string | null }) {
                         </span>
                       </td>
                       <td className="py-2 pr-3">
-                        <input
-                          type="number"
-                          step="0.01"
-                          min="0"
-                          placeholder={String(m.inputPricePerMTok)}
-                          className="input-base py-1 text-sm w-full"
-                          value={override?.inputPricePerMTok ?? ''}
-                          onChange={(e) => setAiCosts((prev) => ({
-                            ...prev,
-                            [m.id]: {
-                              inputPricePerMTok: Number(e.target.value),
-                              outputPricePerMTok: prev[m.id]?.outputPricePerMTok ?? m.outputPricePerMTok,
-                            },
-                          }))}
-                        />
+                        <div className="flex items-center">
+                          <span className="inline-flex items-center px-2 h-8 rounded-l-md border border-r-0 border-neutral-300 bg-neutral-50 text-neutral-500 text-xs select-none">$</span>
+                          <input
+                            type="number"
+                            step="0.01"
+                            min="0"
+                            placeholder={String(m.inputPricePerMTok)}
+                            className="input-base py-1 text-sm w-full rounded-l-none border-l-0"
+                            value={override?.inputPricePerMTok ?? ''}
+                            onChange={(e) => setAiCosts((prev) => ({
+                              ...prev,
+                              [m.id]: {
+                                inputPricePerMTok: Number(e.target.value),
+                                outputPricePerMTok: prev[m.id]?.outputPricePerMTok ?? m.outputPricePerMTok,
+                              },
+                            }))}
+                          />
+                        </div>
                       </td>
                       <td className="py-2">
-                        <input
-                          type="number"
-                          step="0.01"
-                          min="0"
-                          placeholder={String(m.outputPricePerMTok)}
-                          className="input-base py-1 text-sm w-full"
-                          value={override?.outputPricePerMTok ?? ''}
-                          onChange={(e) => setAiCosts((prev) => ({
-                            ...prev,
-                            [m.id]: {
-                              inputPricePerMTok: prev[m.id]?.inputPricePerMTok ?? m.inputPricePerMTok,
-                              outputPricePerMTok: Number(e.target.value),
-                            },
-                          }))}
-                        />
+                        <div className="flex items-center">
+                          <span className="inline-flex items-center px-2 h-8 rounded-l-md border border-r-0 border-neutral-300 bg-neutral-50 text-neutral-500 text-xs select-none">$</span>
+                          <input
+                            type="number"
+                            step="0.01"
+                            min="0"
+                            placeholder={String(m.outputPricePerMTok)}
+                            className="input-base py-1 text-sm w-full rounded-l-none border-l-0"
+                            value={override?.outputPricePerMTok ?? ''}
+                            onChange={(e) => setAiCosts((prev) => ({
+                              ...prev,
+                              [m.id]: {
+                                inputPricePerMTok: prev[m.id]?.inputPricePerMTok ?? m.inputPricePerMTok,
+                                outputPricePerMTok: Number(e.target.value),
+                              },
+                            }))}
+                          />
+                        </div>
                       </td>
                     </tr>
                   )
