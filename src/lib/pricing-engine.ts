@@ -257,7 +257,7 @@ export async function loadPricingModelsForVersion(versionId: string) {
   return getPricingModelsForVersion(versionId)
 }
 
-// ─── Core quote calculation ───────────────────────────────────────────────────
+// ─── Core quote calculations ───────────────────────────────────────────────────
 
 /**
  * Calculates a complete, deterministic quote from deal inputs and a pricing config.
@@ -455,9 +455,9 @@ function buildProductLines(
       }
       if (inputs.customer_status === 'new') {
         const pfModel = find('Platform Fee', 'platform_fee')
-        if (pfModel) result.push(makeLine(sel, pfModel, 'Platform Fee (new customer)', 1, 'year', pfModel.default_price ?? 0, configVersionId))
+        if (pfModel) result.push(makeLine(sel, pfModel, 'Platform Fee (pilot)', 1, 'year', pfModel.default_price ?? 0, configVersionId))
         const sfModel = find('Setup Fee', 'setup_fee')
-        if (sfModel) result.push(makeLine(sel, sfModel, 'Pilot (one-time setup)', 1, 'one-time', sfModel.default_price ?? 0, configVersionId))
+        if (sfModel) result.push(makeLine(sel, sfModel, 'Pilot Setup Fee', 1, 'one-time', sfModel.default_price ?? 0, configVersionId))
       }
       return result
     }
