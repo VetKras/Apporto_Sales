@@ -26,6 +26,8 @@ import { cn, formatCurrency } from '@/lib/utils'
 type Deal = Database['public']['Tables']['deals']['Row']
 type Product = Database['public']['Tables']['products']['Row']
 type ProductFact = Database['public']['Tables']['product_facts']['Row']
+type Competitor = Database['public']['Tables']['competitors']['Row']
+type MatrixRow = Database['public']['Tables']['competitive_matrix']['Row']
 
 interface Props {
   deal: Deal
@@ -51,6 +53,8 @@ export function DealWorkspace({ deal, onClose }: Props) {
   const { profile } = useAuth()
   const [products, setProducts] = useState<Product[]>([])
   const [productFacts, setProductFacts] = useState<Record<string, ProductFact[]>>({})
+  const [matrix, setMatrix] = useState<MatrixRow[]>([])
+  const [competitors, setCompetitors] = useState<Competitor[]>([])
   const [configVersion, setConfigVersion] = useState<PricingConfigVersion | null>(null)
   const [pricingModels, setPricingModels] = useState<PricingModel[]>([])
   const [quoteResult, setQuoteResult] = useState<QuoteResult | null>(null)
@@ -81,14 +85,18 @@ export function DealWorkspace({ deal, onClose }: Props) {
 
   useEffect(() => {
     async function load() {
-      const [{ data: prods }, { data: allFacts }, config, snapshots, rules] = await Promise.all([
+      const [{ data: prods }, { data: allFacts }, config, snapshots, rules, { data: comps }, { data: mat }] = await Promise.all([
         supabase.from('products').select('*').eq('status', 'active'),
         supabase.from('product_facts').select('*'),
         loadActivePricingConfig(),
         loadQuoteSnapshots(deal.id),
         loadPricingRules(),
+        supabase.from('competitors').select('*').order('name'),
+        supabase.from('competitive_matrix').select('*'),
       ])
       setProducts(prods ?? [])
+      setCompetitors(comps ?? [])
+      setMatrix(mat ?? [])
       const factsByProduct: Record<string, ProductFact[]> = {}
       for (const f of (allFacts ?? [])) {
         if (!factsByProduct[f.product_id]) factsByProduct[f.product_id] = []
@@ -387,6 +395,9 @@ export function DealWorkspace({ deal, onClose }: Props) {
             profile={profile}
             proposalSections={proposalSections}
             onProposalSectionChange={handleProposalSectionChange}
+            matrix={matrix}
+            competitors={competitors}
+            products={products}
           />
         </div>
       </div>
@@ -404,6 +415,8 @@ export function DealWorkspace({ deal, onClose }: Props) {
           onCalculate={handleCalculate}
           centerContent={centerContent}
           onCenterContentChange={setCenterContent}
+          matrix={matrix}
+          competitors={competitors}
         />
       </div>
     </div>

@@ -15,6 +15,8 @@ import type { Database as DB } from '@/types/database'
 
 type Profile = DB['public']['Tables']['profiles']['Row']
 type Deal = DB['public']['Tables']['deals']['Row']
+type Competitor = DB['public']['Tables']['competitors']['Row']
+type MatrixRow = DB['public']['Tables']['competitive_matrix']['Row']
 
 interface SourceTrace {
   config_version_id?: string
@@ -66,6 +68,8 @@ interface Props {
   onCalculate: () => void
   centerContent: string
   onCenterContentChange: (content: string) => void
+  matrix: MatrixRow[]
+  competitors: Competitor[]
 }
 
 const AUTHORITY_MAX_DISCOUNT: Record<number, number> = { 1: 5, 2: 10, 3: 15 }
@@ -116,7 +120,9 @@ export function PortiaPanel({
   deal, quoteResult, profile, centerMode, proposalSections,
   onProposalSectionChange, inputs, onInputsChange, onCalculate,
   centerContent: _centerContent, onCenterContentChange,
+  matrix, competitors,
 }: Props) {
+  const selectedProductIds = quoteResult?.lines.map(l => l.product_id) ?? []
   const [messages, setMessages] = useState<Message[]>([])
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
@@ -541,6 +547,20 @@ export function PortiaPanel({
           },
           user_authority_level: profile?.authority_level ?? 1,
           user_name: profile?.name ?? 'User',
+          center_mode: centerMode,
+          competitive_context: selectedProductIds.length > 0
+            ? matrix
+                .filter(r => selectedProductIds.includes(r.product_id))
+                .map(r => ({
+                  competitor: competitors.find(c => c.id === r.competitor_id)?.name ?? r.competitor_id,
+                  tier: r.threat_tier,
+                  escalation: r.escalation_status,
+                  positioning: r.sales_positioning_line,
+                  strength: r.competitor_strength,
+                  edge: r.apporto_edge,
+                  strategic_window: r.strategic_window,
+                }))
+            : [],
         }),
       })
 
@@ -674,7 +694,9 @@ export function PortiaPanel({
         })
       }
     } catch (e) {
-      const msg = e instanceof Error ? e.message : 'Unknown error'
+      const raw = e instanceof Error ? e.message : 'Unknown error'
+      const isQuotaError = /429|RESOURCE_EXHAUSTED|quota|rate.?limit/i.test(raw)
+      const msg = isQuotaError ? 'You are out of tokens.' : raw
       setError(msg)
       setMessages((m) => m.filter((msg) => msg.content !== ''))
     } finally {

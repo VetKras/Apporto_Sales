@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Save, Copy, Lock, Globe, AlertTriangle, FileText, ExternalLink, Info, Sparkles } from 'lucide-react'
 import { cn, formatCurrency, formatPercent, approvalColor } from '@/lib/utils'
-import { COTUTOR_MODELS, type QuoteResult } from '@/lib/pricing-engine'
+import { COTUTOR_MODELS, type QuoteResult, type DealInputs } from '@/lib/pricing-engine'
 import {
   ProposalTemplate,
   generateProposalText,
@@ -11,10 +11,15 @@ import {
   type ProposalSections,
   type ProposalSectionKey,
 } from './ProposalTemplate'
+import { BattlecardPanel } from './BattlecardPanel'
+import { StrategyPanel } from './StrategyPanel'
 import type { Database } from '@/types/database'
 
 type Deal = Database['public']['Tables']['deals']['Row']
 type Profile = Database['public']['Tables']['profiles']['Row']
+type Competitor = Database['public']['Tables']['competitors']['Row']
+type MatrixRow = Database['public']['Tables']['competitive_matrix']['Row']
+type Product = Database['public']['Tables']['products']['Row']
 
 interface Props {
   deal: Deal
@@ -26,6 +31,9 @@ interface Props {
   profile: Profile | null
   proposalSections: ProposalSections
   onProposalSectionChange: (key: ProposalSectionKey, value: string) => void
+  matrix: MatrixRow[]
+  competitors: Competitor[]
+  products: Product[]
 }
 
 function WarningBadge({ children, onClick }: { children: React.ReactNode; onClick?: () => void }) {
@@ -49,7 +57,22 @@ function WarningBadge({ children, onClick }: { children: React.ReactNode; onClic
   )
 }
 
-export function QuoteOutputPanel({ deal, quoteResult, mode, centerContent, onCenterContentChange, onSaveOutput, profile, proposalSections, onProposalSectionChange }: Props) {
+export function QuoteOutputPanel({ deal, quoteResult, mode, centerContent, onCenterContentChange, onSaveOutput, profile, proposalSections, onProposalSectionChange, matrix, competitors, products }: Props) {
+  const selectedProductIds = quoteResult?.lines.map(l => l.product_id) ?? []
+  const emptyInputs: Omit<DealInputs, 'deal_id'> = {
+    student_count: quoteResult?.inputs_snapshot.student_count ?? 0,
+    faculty_count: quoteResult?.inputs_snapshot.faculty_count ?? 0,
+    course_sections: quoteResult?.inputs_snapshot.course_sections ?? 0,
+    exam_days: quoteResult?.inputs_snapshot.exam_days ?? 0,
+    seats_per_exam_day: quoteResult?.inputs_snapshot.seats_per_exam_day ?? 0,
+    customer_status: quoteResult?.inputs_snapshot.customer_status ?? 'new',
+    discount_percent: quoteResult?.discount_percent ?? 0,
+    selected_products: [],
+    contract_term: quoteResult?.assumptions.contract_term ?? 'annual',
+    tco_multiplier: quoteResult?.assumptions.tco_multiplier_used ?? 1.6,
+    true_up_clause: quoteResult?.assumptions.true_up_clause ?? false,
+    compliance_requirements: quoteResult?.assumptions.compliance_requirements ?? [],
+  }
   const navigate = useNavigate()
   const [classification, setClassification] = useState<'customer_facing' | 'internal_only' | 'mixed_draft'>('mixed_draft')
   const [saving, setSaving] = useState(false)
@@ -329,6 +352,75 @@ export function QuoteOutputPanel({ deal, quoteResult, mode, centerContent, onCen
     )
   }
 
+  // ── Battlecard ───────────────────────────────────────────────────────────────────────────────
+  if (mode === 'battlecard') {
+    if (!quoteResult) {
+      return (
+        <div className="flex flex-col items-center justify-center py-20 text-neutral-400">
+          <div className="w-16 h-16 rounded-2xl bg-neutral-100 flex items-center justify-center mb-4">
+            <FileText className="w-7 h-7 text-neutral-300" />
+          </div>
+          <p className="text-sm font-semibold text-neutral-600 mb-2">No quote selected</p>
+          <p className="text-xs text-neutral-400 text-center max-w-xs leading-relaxed">
+            Calculate a quote first. The battlecard will populate with competitive intelligence for the selected products.
+          </p>
+        </div>
+      )
+    }
+    return (
+      <div className="flex flex-col h-full">
+        <div className="flex items-center gap-2 px-4 py-2 border-b border-neutral-200 bg-neutral-50 flex-shrink-0">
+          <select
+            className="input-base w-auto py-1 text-xs"
+            value={classification}
+            onChange={(e) => setClassification(e.target.value as typeof classification)}
+          >
+            <option value="internal_only">Internal only</option>
+            <option value="mixed_draft">Draft (mixed)</option>
+          </select>
+          {classification === 'internal_only' && (
+            <span className="badge-internal flex items-center gap-1"><Lock className="w-3 h-3" />Internal</span>
+          )}
+          <div className="ml-auto flex gap-2">
+            <button
+              className="btn-ghost py-1 text-xs"
+              onClick={() => centerContent && navigator.clipboard.writeText(centerContent)}
+              disabled={!centerContent}
+            >
+              <Copy className="w-3.5 h-3.5" /> Copy brief
+            </button>
+            <button className="btn-secondary py-1.5 text-xs" onClick={handleSave} disabled={saving || !centerContent}>
+              <Save className="w-3.5 h-3.5" /> {saving ? 'Saving…' : 'Save'}
+            </button>
+          </div>
+        </div>
+        <div className="flex-1 overflow-y-auto">
+          <BattlecardPanel
+            matrix={matrix}
+            competitors={competitors}
+            products={products}
+            selectedProductIds={selectedProductIds}
+            centerContent={centerContent}
+          />
+        </div>
+      </div>
+    )
+  }
+
+  // ── Strategy ─────────────────────────────────────────────────────────────────────────────────
+  if (!quoteResult) {
+    return (
+      <div className="flex flex-col items-center justify-center py-20 text-neutral-400">
+        <div className="w-16 h-16 rounded-2xl bg-neutral-100 flex items-center justify-center mb-4">
+          <FileText className="w-7 h-7 text-neutral-300" />
+        </div>
+        <p className="text-sm font-semibold text-neutral-600 mb-2">No quote selected</p>
+        <p className="text-xs text-neutral-400 text-center max-w-xs leading-relaxed">
+          Calculate a quote first. The strategy panel will populate with deal context, active threats, and space for Portia's strategy brief.
+        </p>
+      </div>
+    )
+  }
   return (
     <div className="flex flex-col h-full">
       <div className="flex items-center gap-2 px-4 py-2 border-b border-neutral-200 bg-neutral-50 flex-shrink-0">
@@ -337,38 +429,37 @@ export function QuoteOutputPanel({ deal, quoteResult, mode, centerContent, onCen
           value={classification}
           onChange={(e) => setClassification(e.target.value as typeof classification)}
         >
-          <option value="mixed_draft">Draft (mixed)</option>
-          <option value="customer_facing">Customer-facing</option>
           <option value="internal_only">Internal only</option>
+          <option value="mixed_draft">Draft (mixed)</option>
         </select>
         {classification === 'internal_only' && (
           <span className="badge-internal flex items-center gap-1"><Lock className="w-3 h-3" />Internal</span>
         )}
-        {classification === 'customer_facing' && (
-          <span className="badge-customer flex items-center gap-1"><Globe className="w-3 h-3" />Customer</span>
-        )}
         <div className="ml-auto flex gap-2">
           <button
             className="btn-ghost py-1 text-xs"
-            onClick={() => { navigator.clipboard.writeText(centerContent) }}
+            onClick={() => centerContent && navigator.clipboard.writeText(centerContent)}
             disabled={!centerContent}
           >
-            <Copy className="w-3.5 h-3.5" /> Copy
+            <Copy className="w-3.5 h-3.5" /> Copy brief
           </button>
           <button className="btn-secondary py-1.5 text-xs" onClick={handleSave} disabled={saving || !centerContent}>
             <Save className="w-3.5 h-3.5" /> {saving ? 'Saving…' : 'Save'}
           </button>
         </div>
       </div>
-      <textarea
-        className="flex-1 p-4 text-sm text-neutral-800 resize-none focus:outline-none bg-white font-mono leading-relaxed"
-        placeholder={
-          mode === 'battlecard' ? 'Portia will generate a competitive battlecard here…' :
-          'Deal strategy and internal notes…'
-        }
-        value={centerContent}
-        onChange={(e) => onCenterContentChange(e.target.value)}
-      />
+      <div className="flex-1 overflow-y-auto">
+        <StrategyPanel
+          deal={deal}
+          quoteResult={quoteResult}
+          inputs={emptyInputs}
+          matrix={matrix}
+          competitors={competitors}
+          products={products}
+          selectedProductIds={selectedProductIds}
+          centerContent={centerContent}
+        />
+      </div>
     </div>
   )
 }

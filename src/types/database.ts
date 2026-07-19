@@ -203,6 +203,46 @@ export interface Database {
           is_active?: boolean
         }
       }
+      pricing_brackets: {
+        Row: {
+          id: string
+          config_version_id: string
+          suite_tier: string
+          suite_tier_label: string
+          bracket_index: number
+          seat_min: number
+          seat_max: number | null
+          price_per_seat: number
+          currency: string
+          source_reference: string | null
+          is_active: boolean
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          config_version_id: string
+          suite_tier: string
+          suite_tier_label: string
+          bracket_index: number
+          seat_min: number
+          seat_max?: number | null
+          price_per_seat: number
+          currency?: string
+          source_reference?: string | null
+          is_active?: boolean
+        }
+        Update: {
+          suite_tier?: string
+          suite_tier_label?: string
+          bracket_index?: number
+          seat_min?: number
+          seat_max?: number | null
+          price_per_seat?: number
+          currency?: string
+          source_reference?: string | null
+          is_active?: boolean
+        }
+      }
       deals: {
         Row: {
           id: string
@@ -211,6 +251,7 @@ export interface Database {
           stage: string | null
           status: string
           metadata: Json
+          notes: string | null
           created_at: string
           updated_at: string
         }
@@ -220,6 +261,7 @@ export interface Database {
           stage?: string | null
           status?: string
           metadata?: Json
+          notes?: string | null
         }
         Update: {
           customer_name?: string
@@ -227,6 +269,37 @@ export interface Database {
           stage?: string | null
           status?: string
           metadata?: Json
+          notes?: string | null
+        }
+      }
+      context_reviews: {
+        Row: {
+          id: string
+          deal_id: string | null
+          submitted_by: string | null
+          authority_level: number
+          content: string
+          source_type: string
+          file_name: string | null
+          status: string
+          reviewed_by: string | null
+          created_at: string
+          reviewed_at: string | null
+        }
+        Insert: {
+          deal_id?: string | null
+          submitted_by?: string | null
+          authority_level?: number
+          content: string
+          source_type?: string
+          file_name?: string | null
+          status?: string
+          reviewed_by?: string | null
+        }
+        Update: {
+          status?: string
+          reviewed_by?: string | null
+          reviewed_at?: string | null
         }
       }
       deal_inputs: {

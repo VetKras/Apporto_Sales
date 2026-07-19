@@ -24,6 +24,7 @@ export type ProductRow            = Tables['products']['Row']
 export type ProductFactRow        = Tables['product_facts']['Row']
 export type PricingConfigRow      = Tables['pricing_config_versions']['Row']
 export type PricingModelRow       = Tables['pricing_models']['Row']
+export type PricingBracketRow     = Tables['pricing_brackets']['Row']
 export type DealRow               = Tables['deals']['Row']
 export type DealInputRow          = Tables['deal_inputs']['Row']
 export type QuoteLineRow          = Tables['quote_lines']['Row']
@@ -83,6 +84,23 @@ export async function getPricingModelsForVersion(versionId: string): Promise<Pri
     .eq('is_active', true)
   return (data ?? []) as PricingModelRow[]
 }
+
+// --- Suite Tier pricing brackets --------------------------------------------
+
+export async function getPricingBracketsForVersion(
+  versionId: string
+): Promise<PricingBracketRow[]> {
+  const { data } = await supabase
+    .from('pricing_brackets')
+    .select('*')
+    .eq('config_version_id', versionId)
+    .eq('is_active', true)
+    .order('suite_tier', { ascending: true })
+    .order('bracket_index', { ascending: true })
+  return (data ?? []) as PricingBracketRow[]
+}
+
+// ─── Products ─────────────────────────────────────────────────────────────────
 
 export async function getActiveProducts(): Promise<ProductRow[]> {
   const { data } = await supabase
