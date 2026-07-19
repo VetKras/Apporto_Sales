@@ -7,19 +7,17 @@ import {
 import { useAuth } from '@/contexts/AuthContext'
 import { cn, authorityColor } from '@/lib/utils'
 
-const ALL_NAV_ITEMS = [
-  { to: '/deals',       label: 'Deals & Quotes', icon: LayoutDashboard, minLevel: 1 },
-  { to: '/products',    label: 'Products',        icon: Package,         minLevel: 1 },
-  { to: '/competitive', label: 'Competitive',     icon: Swords,          minLevel: 1 },
-  { to: '/portia',      label: 'Portia',          icon: MessageSquare,   minLevel: 1 },
-  { to: '/settings',    label: 'Settings',        icon: Settings,        minLevel: 3 },
+const NAV_ITEMS = [
+  { to: '/deals',      label: 'Deals & Quotes',    icon: LayoutDashboard },
+  { to: '/products',   label: 'Products',           icon: Package },
+  { to: '/competitive',label: 'Competitive',        icon: Swords },
+  { to: '/portia',     label: 'Portia',             icon: MessageSquare },
+  { to: '/settings',   label: 'Settings',           icon: Settings },
 ]
 
 export function AppLayout() {
-  const { profile, signOut, _prv } = useAuth()
+  const { profile, signOut } = useAuth()
   const navigate = useNavigate()
-  const level = profile?.authority_level ?? 0
-  const NAV_ITEMS = ALL_NAV_ITEMS.filter((item) => level >= item.minLevel || _prv)
   const [collapsed, setCollapsed] = useState(false)
 
   async function handleSignOut() {
