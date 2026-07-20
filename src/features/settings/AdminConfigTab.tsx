@@ -11,6 +11,7 @@ import { Save, Loader2, CheckCircle, AlertCircle } from 'lucide-react'
 import type { Database } from '@/types/database'
 
 type PricingModel = Database['public']['Tables']['pricing_models']['Row']
+type PricingConfigVersion = Database['public']['Tables']['pricing_config_versions']['Row']
 
 const RULES_PROVIDER = 'pricing_rules'
 
@@ -32,6 +33,7 @@ function calcMargin(price: number, cost: number): string {
 }
 
 export function AdminConfigTab({ profileId }: { profileId: string | null }) {
+  const [activeConfig, setActiveConfig] = useState<PricingConfigVersion | null>(null)
   const [models, setModels] = useState<PricingModel[]>([])
   const [editedModels, setEditedModels] = useState<Record<string, { price: string; cost: string }>>({})
   const [rules, setRules] = useState<PricingRules>(DEFAULT_RULES)
@@ -58,6 +60,7 @@ export function AdminConfigTab({ profileId }: { profileId: string | null }) {
         getAllIntegrationSettings(),
       ])
       const active = configs.find((c) => c.is_active)
+      setActiveConfig(active ?? null)
       if (active) {
         const [mods, cotutorCtx] = await Promise.all([
           loadPricingModelsForVersion(active.id),
@@ -207,11 +210,19 @@ export function AdminConfigTab({ profileId }: { profileId: string | null }) {
         </div>
       )}
 
-      <div>
-        <h2 className="text-sm font-semibold text-neutral-700">Admin Configuration</h2>
-        <p className="text-xs text-neutral-500 mt-0.5">
-          Changes here apply to all users across all deals. Authority level 3+ only.
-        </p>
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h2 className="text-sm font-semibold text-neutral-700">Pricing Config</h2>
+          <p className="text-xs text-neutral-500 mt-0.5">
+            Changes here apply to all users across all deals. Authority level 3+ only.
+          </p>
+        </div>
+        {activeConfig && (
+          <div className="text-right flex-shrink-0">
+            <span className="text-xs font-medium px-2 py-0.5 bg-emerald-100 text-emerald-700 rounded-full">Active config</span>
+            <div className="text-xs text-neutral-500 mt-1">{activeConfig.version_name} · effective {activeConfig.effective_date}</div>
+          </div>
+        )}
       </div>
 
       <div className="flex gap-1">

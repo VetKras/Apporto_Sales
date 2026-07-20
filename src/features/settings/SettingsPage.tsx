@@ -1,8 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useAuth } from '@/contexts/AuthContext'
-import { formatCurrency, cn } from '@/lib/utils'
-import { loadAllPricingConfigs, loadPricingModelsForVersion } from '@/lib/pricing-engine'
+import { cn } from '@/lib/utils'
 import { AdminConfigTab } from './AdminConfigTab'
 import { TeamAuthorityTab } from './TeamAuthorityTab'
 import {
@@ -13,45 +12,16 @@ import {
   type IntegrationSettingsRow,
 } from '@/lib/db'
 import { CheckCircle, XCircle, Loader2, ExternalLink, Eye, EyeOff, Plus, Trash2, Key } from 'lucide-react'
-import type { Database } from '@/types/database'
-
-type PricingConfigVersion = Database['public']['Tables']['pricing_config_versions']['Row']
-type PricingModel = Database['public']['Tables']['pricing_models']['Row']
 
 export function SettingsPage() {
-  const { profile, _prv } = useAuth()
+  const { profile, _prv, loading } = useAuth()
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
-  const [configs, setConfigs] = useState<PricingConfigVersion[]>([])
-  const [selectedConfig, setSelectedConfig] = useState<string | null>(null)
-  const [models, setModels] = useState<PricingModel[]>([])
-  const initialTab = searchParams.get('tab') as 'pricing' | 'team' | 'integrations' | 'admin' | null
-  const [activeTab, setActiveTab] = useState<'pricing' | 'team' | 'integrations' | 'admin'>(initialTab ?? 'pricing')
-  const [loading, setLoading] = useState(true)
+  const initialTab = searchParams.get('tab') as 'team' | 'integrations' | 'admin' | null
+  const [activeTab, setActiveTab] = useState<'team' | 'integrations' | 'admin'>(initialTab ?? 'admin')
 
   const level = profile?.authority_level ?? 0
   const canSeeTeam = level >= 3 || _prv
-
-  useEffect(() => {
-    async function load() {
-      const cfgs = await loadAllPricingConfigs()
-      setConfigs(cfgs)
-      const active = cfgs.find((c) => c.is_active)
-      if (active) {
-        setSelectedConfig(active.id)
-        const mods = await loadPricingModelsForVersion(active.id)
-        setModels(mods)
-      }
-      setLoading(false)
-    }
-    load()
-  }, [])
-
-  async function handleSelectConfig(id: string) {
-    setSelectedConfig(id)
-    const mods = await loadPricingModelsForVersion(id)
-    setModels(mods)
-  }
 
   useEffect(() => {
     if (!loading && level < 3 && !_prv) navigate('/deals', { replace: true })
@@ -68,10 +38,9 @@ export function SettingsPage() {
 
       <div className="flex gap-1 px-6 py-3 border-b border-neutral-200 bg-white flex-shrink-0">
         {([
-          { id: 'pricing'      as const, label: 'Pricing Config'    },
+          { id: 'admin'        as const, label: 'Pricing Config'    },
           { id: 'integrations' as const, label: 'Integrations'      },
           ...(canSeeTeam ? [{ id: 'team'  as const, label: 'Team & Authority' }] : []),
-          { id: 'admin'        as const, label: 'Admin Config'      },
         ]).map((t) => (
           <button
             key={t.id}
@@ -87,84 +56,6 @@ export function SettingsPage() {
       </div>
 
       <div className="flex-1 overflow-y-auto p-6">
-        {activeTab === 'pricing' && (
-          <div className="max-w-3xl space-y-6">
-            <div>
-              <h2 className="text-sm font-semibold text-neutral-700 mb-3">Config versions</h2>
-              <div className="space-y-2">
-                {configs.map((c) => (
-                  <button
-                    key={c.id}
-                    onClick={() => handleSelectConfig(c.id)}
-                    className={cn(
-                      'w-full card p-3 text-left flex items-center justify-between transition-shadow hover:shadow-md',
-                      selectedConfig === c.id && 'ring-2 ring-brand-500'
-                    )}
-                  >
-                    <div>
-                      <div className="text-sm font-medium text-neutral-900">{c.version_name}</div>
-                      <div className="text-xs text-neutral-500 mt-0.5">{c.notes}</div>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      {c.is_active && (
-                        <span className="text-xs font-medium px-2 py-0.5 bg-emerald-100 text-emerald-700 rounded-full">Active</span>
-                      )}
-                      <span className="text-xs text-neutral-400">{c.effective_date}</span>
-                    </div>
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            {selectedConfig && models.length > 0 && (
-              <div>
-                <h2 className="text-sm font-semibold text-neutral-700 mb-3">
-                  Pricing models
-                  {configs.find((c) => c.id === selectedConfig)?.is_active && (
-                    <span className="ml-2 text-xs font-normal text-emerald-600">(active config — these values drive all quotes)</span>
-                  )}
-                </h2>
-                <div className="overflow-x-auto">
-                  <table className="w-full text-sm">
-                    <thead>
-                      <tr className="border-b border-neutral-200">
-                        {['Product', 'Tier', 'Type', 'Unit', 'Default price', 'Confidence'].map((h) => (
-                          <th key={h} className="text-left py-2 pr-4 text-xs font-semibold text-neutral-500 uppercase tracking-wide">{h}</th>
-                        ))}
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-neutral-100">
-                      {models.map((m) => (
-                        <tr key={m.id} className="hover:bg-neutral-50">
-                          <td className="py-2 pr-4 text-neutral-700 text-xs">{m.product_id.replace('seed-product-', '')}</td>
-                          <td className="py-2 pr-4 text-neutral-900 font-medium">{m.tier_name}</td>
-                          <td className="py-2 pr-4 text-neutral-500 text-xs">{m.pricing_type}</td>
-                          <td className="py-2 pr-4 text-neutral-500 text-xs">{m.unit}</td>
-                          <td className="py-2 pr-4 font-semibold text-brand-700">
-                            {m.default_price != null ? formatCurrency(m.default_price) : '—'}
-                          </td>
-                          <td className="py-2">
-                            <span className={cn(
-                              'text-xs font-medium',
-                              m.confidence === 'high' ? 'text-emerald-600' :
-                              m.confidence === 'medium' ? 'text-amber-600' : 'text-red-500'
-                            )}>
-                              {m.confidence}
-                            </span>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-                <p className="text-xs text-neutral-400 mt-3">
-                  To change pricing defaults, update the active config version in the database or create a new config version through the proposed update workflow.
-                </p>
-              </div>
-            )}
-          </div>
-        )}
-
         {activeTab === 'team' && canSeeTeam && <TeamAuthorityTab />}
 
         {activeTab === 'integrations' && (

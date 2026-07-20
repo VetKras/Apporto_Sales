@@ -6,7 +6,11 @@ export function cn(...inputs: ClassValue[]) {
 }
 
 export function formatCurrency(amount: number, currency = 'USD'): string {
-  return new Intl.NumberFormat('en-US', { style: 'currency', currency, minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(amount)
+  // Sub-dollar per-unit prices (e.g. ExamSpace Container at $0.099/student/year) round to $0 at
+  // whole-dollar precision and lose all meaning — give those extra decimals, keep everything else
+  // (contract totals, ACV) as clean whole dollars.
+  const fractionDigits = amount !== 0 && Math.abs(amount) < 1 ? 3 : 0
+  return new Intl.NumberFormat('en-US', { style: 'currency', currency, minimumFractionDigits: fractionDigits, maximumFractionDigits: fractionDigits }).format(amount)
 }
 
 export function formatNumber(n: number): string {
