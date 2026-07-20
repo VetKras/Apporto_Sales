@@ -91,19 +91,7 @@ export function QuoteInputsPanel({ inputs, products, pricingModels, cotutorConte
       }
       update({ selected_products: next })
     } else {
-      let newSel = defaultSelectedProduct(p)
-      // CoTutor's assignments_per_course and PowerGrader's assignments_per_month are the same
-      // shared "Assignments/mo" field in the UI — if the other one is already in the deal,
-      // inherit its value instead of this product's own default, so the single displayed field
-      // always matches what both formulas actually use (defaults differ: CoTutor 4, PowerGrader 5).
-      if (p.slug === 'cotutor') {
-        const pg = inputs.selected_products.find((s) => s.product_slug === 'powergrader')
-        if (pg?.assignments_per_month != null) newSel = { ...newSel, assignments_per_course: pg.assignments_per_month }
-      } else if (p.slug === 'powergrader') {
-        const ct = inputs.selected_products.find((s) => s.product_slug === 'cotutor')
-        if (ct?.assignments_per_course != null) newSel = { ...newSel, assignments_per_month: ct.assignments_per_course }
-      }
-      update({ selected_products: [...inputs.selected_products, newSel] })
+      update({ selected_products: [...inputs.selected_products, defaultSelectedProduct(p)] })
     }
   }
   function updateSel(productId: string, patch: Partial<SelectedProduct>) {
@@ -115,18 +103,7 @@ export function QuoteInputsPanel({ inputs, products, pricingModels, cotutorConte
       const p = products.find((pr) => pr.slug === slug)
       if (!p) continue
       const existing = inputs.selected_products.find((s) => s.product_slug === slug)
-      if (existing) { next.push(existing); continue }
-      let newSel = defaultSelectedProduct(p)
-      // Same shared assignments/mo sync as toggleProduct() — avoid landing on mismatched
-      // defaults (CoTutor 4 vs PowerGrader 5) when a preset adds both at once.
-      if (slug === 'cotutor') {
-        const pg = next.find((s) => s.product_slug === 'powergrader') ?? inputs.selected_products.find((s) => s.product_slug === 'powergrader')
-        if (pg?.assignments_per_month != null) newSel = { ...newSel, assignments_per_course: pg.assignments_per_month }
-      } else if (slug === 'powergrader') {
-        const ct = next.find((s) => s.product_slug === 'cotutor') ?? inputs.selected_products.find((s) => s.product_slug === 'cotutor')
-        if (ct?.assignments_per_course != null) newSel = { ...newSel, assignments_per_month: ct.assignments_per_course }
-      }
-      next.push(newSel)
+      next.push(existing ?? defaultSelectedProduct(p))
     }
     update({ selected_products: next })
   }
@@ -214,24 +191,16 @@ export function QuoteInputsPanel({ inputs, products, pricingModels, cotutorConte
               fields grouped below, all overrides together at the bottom. Not just the old
               per-product accordions flattened into a list. */}
           {productCount > 0 && (() => {
-            const cotutorSel = inputs.selected_products.find((s) => s.product_slug === 'cotutor')
             const powerGraderSel = inputs.selected_products.find((s) => s.product_slug === 'powergrader')
             const hasPowergrader = !!powerGraderSel
-
-            // CoTutor's field is named assignments_per_course for historical reasons but is
-            // consumed as assignments-per-month everywhere it's used — same unit as
-            // PowerGrader's assignments_per_month, so one shared input drives both.
-            const sharedAssignmentsPerMonth = cotutorSel?.assignments_per_course ?? powerGraderSel?.assignments_per_month ?? 4
-            function updateSharedAssignments(v: number) {
-              if (cotutorSel) updateSel(cotutorSel.product_id, { assignments_per_course: v })
-              if (powerGraderSel) updateSel(powerGraderSel.product_id, { assignments_per_month: v })
-            }
 
             return (
               <div className="space-y-4 border-t border-neutral-100 pt-4">
                 <p className="text-xs font-semibold text-neutral-500 uppercase tracking-wide">Configuration</p>
 
-                {/* Shared, deal-wide context first */}
+                {/* LMS is deal-wide context, not tied to any one product's usage numbers — stays
+                    hoisted to the top even though CoTutor/PowerGrader's own fields (including
+                    each one's own Assignments/mo) live in their own sections below. */}
                 {hasPowergrader && (
                   <Row label="LMS platform">
                     <select className="select-base" value={powerGraderSel!.lms_platform ?? 'Canvas'} onChange={(e) => updateSel(powerGraderSel!.product_id, { lms_platform: e.target.value as SelectedProduct['lms_platform'] })}>
@@ -244,16 +213,8 @@ export function QuoteInputsPanel({ inputs, products, pricingModels, cotutorConte
                     {(powerGraderSel!.lms_platform === 'Blackboard' || powerGraderSel!.lms_platform === 'Moodle') && <Warn>{powerGraderSel!.lms_platform} support is limited — confirm integration readiness.</Warn>}
                   </Row>
                 )}
-                {(cotutorSel || powerGraderSel) && (
-                  <Row label="Assignments/mo">
-                    <input type="number" className="select-base" min={0} value={sharedAssignmentsPerMonth} onChange={(e) => updateSharedAssignments(Number(e.target.value) || 0)} />
-                    <p className="text-xs text-neutral-400 mt-0.5">
-                      {cotutorSel && powerGraderSel ? 'Shared by CoTutor and PowerGrader.' : cotutorSel ? 'CoTutor.' : 'PowerGrader (assignments, not quizzes).'}
-                    </p>
-                  </Row>
-                )}
 
-                {/* Product-specific fields — only what's left after hoisting the shared ones above */}
+                {/* Product-specific fields — only what's left after hoisting LMS above */}
                 {inputs.selected_products.map((sel) => {
                   const p = products.find((pr) => pr.id === sel.product_id)
                   if (!p) return null
@@ -490,6 +451,7 @@ function CoTutorFields({ sel, inputs, cotutorContext, onChange }: {
           ))}
         </select>
       </Row>
+      <NumField label="Assignments/mo" value={assignmentsPerMonth} onChange={(v) => onChange({ assignments_per_course: v })} />
       {calc && (
         <p className="text-xs text-neutral-400 mt-0.5">
           Formula price: ${calc.customerPricePerStudentPerYear.toFixed(2)}/student/yr
@@ -529,6 +491,7 @@ function PowerGraderFields({ sel, inputs, powerGraderContext, onChange }: {
         <NumField label="Instr. pages" step={0.5} value={pagesPerInstruction} onChange={(v) => onChange({ pages_per_instruction: v })} />
         <NumField label="Sub. pages" step={0.5} value={pagesPerSubmission} onChange={(v) => onChange({ pages_per_submission: v })} />
       </div>
+      <NumField label="Assign./month" value={assignmentsPerMonth} onChange={(v) => onChange({ assignments_per_month: v })} />
 
       <p className="text-xs text-neutral-400 mt-2">Quizzes / exams</p>
       <div className="grid grid-cols-2 gap-2">
