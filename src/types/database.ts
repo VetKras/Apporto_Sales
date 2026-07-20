@@ -70,6 +70,62 @@ export interface Database {
           requires_confirmation?: boolean
         }
       }
+      feature_flags: {
+        Row: {
+          key: string
+          label: string
+          description: string | null
+          created_at: string
+        }
+        Insert: {
+          key: string
+          label: string
+          description?: string | null
+        }
+        Update: {
+          label?: string
+          description?: string | null
+        }
+      }
+      feature_level_access: {
+        Row: {
+          id: string
+          feature_key: string
+          authority_level: number
+          enabled: boolean
+          updated_by: string | null
+          updated_at: string
+        }
+        Insert: {
+          feature_key: string
+          authority_level: number
+          enabled?: boolean
+          updated_by?: string | null
+        }
+        Update: {
+          enabled?: boolean
+          updated_by?: string | null
+          updated_at?: string
+        }
+      }
+      feature_team_restrictions: {
+        Row: {
+          id: string
+          manager_profile_id: string
+          feature_key: string
+          updated_by: string | null
+          updated_at: string
+        }
+        Insert: {
+          manager_profile_id: string
+          feature_key: string
+          updated_by?: string | null
+        }
+        Update: {
+          updated_by?: string | null
+          updated_at?: string
+        }
+      }
       products: {
         Row: {
           id: string

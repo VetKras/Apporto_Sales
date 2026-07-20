@@ -1,10 +1,10 @@
 import { useState, useEffect } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
-import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/contexts/AuthContext'
-import { formatCurrency, cn, authorityColor } from '@/lib/utils'
+import { formatCurrency, cn } from '@/lib/utils'
 import { loadAllPricingConfigs, loadPricingModelsForVersion } from '@/lib/pricing-engine'
 import { AdminConfigTab } from './AdminConfigTab'
+import { TeamAuthorityTab } from './TeamAuthorityTab'
 import {
   getAllIntegrationSettings,
   upsertIntegrationSetting,
@@ -17,7 +17,6 @@ import type { Database } from '@/types/database'
 
 type PricingConfigVersion = Database['public']['Tables']['pricing_config_versions']['Row']
 type PricingModel = Database['public']['Tables']['pricing_models']['Row']
-type Profile = Database['public']['Tables']['profiles']['Row']
 
 export function SettingsPage() {
   const { profile, _prv } = useAuth()
@@ -26,22 +25,17 @@ export function SettingsPage() {
   const [configs, setConfigs] = useState<PricingConfigVersion[]>([])
   const [selectedConfig, setSelectedConfig] = useState<string | null>(null)
   const [models, setModels] = useState<PricingModel[]>([])
-  const [profiles, setProfiles] = useState<Profile[]>([])
   const initialTab = searchParams.get('tab') as 'pricing' | 'team' | 'integrations' | 'admin' | null
   const [activeTab, setActiveTab] = useState<'pricing' | 'team' | 'integrations' | 'admin'>(initialTab ?? 'pricing')
   const [loading, setLoading] = useState(true)
 
   const level = profile?.authority_level ?? 0
-  const canSeeTeam = level >= 4 || _prv
+  const canSeeTeam = level >= 3 || _prv
 
   useEffect(() => {
     async function load() {
-      const [cfgs, { data: profs }] = await Promise.all([
-        loadAllPricingConfigs(),
-        supabase.from('profiles').select('*').order('authority_level', { ascending: false }),
-      ])
+      const cfgs = await loadAllPricingConfigs()
       setConfigs(cfgs)
-      setProfiles(profs ?? [])
       const active = cfgs.find((c) => c.is_active)
       if (active) {
         setSelectedConfig(active.id)
@@ -171,62 +165,7 @@ export function SettingsPage() {
           </div>
         )}
 
-        {activeTab === 'team' && canSeeTeam && (
-          <div className="max-w-3xl space-y-6">
-            <div>
-              <h2 className="text-sm font-semibold text-neutral-700 mb-3">Team members</h2>
-              <div className="space-y-2">
-                {profiles.map((p) => (
-                  <div key={p.id} className="card p-3 flex items-center gap-4">
-                    <div className="w-8 h-8 rounded-full bg-brand-100 flex items-center justify-center flex-shrink-0">
-                      <span className="text-brand-700 font-medium text-sm">{p.name.charAt(0)}</span>
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="text-sm font-medium text-neutral-900">{p.name}</div>
-                      <div className="text-xs text-neutral-500 truncate">{p.title} · {p.department}</div>
-                      {p.authority_notes && (
-                        <div className="text-xs text-neutral-400 mt-0.5 truncate">{p.authority_notes}</div>
-                      )}
-                    </div>
-                    <div className="flex items-center gap-2 flex-shrink-0">
-                      <span className={cn('badge-level text-xs px-2 py-0.5 rounded border', authorityColor(p.authority_level))}>
-                        L{p.authority_level}
-                      </span>
-                      <span className={cn(
-                        'text-xs px-1.5 py-0.5 rounded',
-                        p.status === 'active' ? 'text-emerald-600' : 'text-neutral-400'
-                      )}>
-                        {p.status}
-                      </span>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            <div>
-              <h2 className="text-sm font-semibold text-neutral-700 mb-3">Authority levels</h2>
-              <div className="space-y-2">
-                {[
-                  { level: 4, label: 'Executive / company leadership', behavior: 'Deferential analysis, confirmation-gated override with full audit trail.' },
-                  { level: 3, label: 'Manager / domain owner', behavior: 'Deep analysis + strong proposed update. No direct overwrites.' },
-                  { level: 2, label: 'Standard sales/product user', behavior: 'Creates proposed updates for review. Cannot overwrite source truth.' },
-                  { level: 1, label: 'Low / new or unknown employee', behavior: 'Conflicting data blocked immediately. Supervisor escalation required.' },
-                ].map((a) => (
-                  <div key={a.level} className="card p-3 flex gap-3">
-                    <span className={cn('badge-level text-xs px-2 py-0.5 rounded border self-start mt-0.5', authorityColor(a.level))}>
-                      L{a.level}
-                    </span>
-                    <div>
-                      <div className="text-sm font-medium text-neutral-800">{a.label}</div>
-                      <div className="text-xs text-neutral-500 mt-0.5">{a.behavior}</div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
-        )}
+        {activeTab === 'team' && canSeeTeam && <TeamAuthorityTab />}
 
         {activeTab === 'integrations' && (
           <IntegrationsTab profileId={profile?.id ?? null} />

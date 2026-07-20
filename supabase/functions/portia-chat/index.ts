@@ -240,14 +240,39 @@ async function canAccessDeal(sb: SupabaseClient, dealId: string, requester: Requ
   return false;
 }
 
-// STUB — the level-based feature-access system (feature_flags / feature_level_access /
-// feature_team_restrictions) this reads from is a separate, not-yet-built plan
-// (docs/FEATURE_ACCESS_CONTROL_PLAN.md). Until those tables exist, every feature reads as
-// enabled for everyone — same as current (pre-this-feature) behavior. Replace this function's
-// body with the real two-tier cascade lookup once that migration lands; the call site below
-// doesn't need to change.
-async function getEffectiveFeatureAccess(_sb: SupabaseClient, _requester: Requester): Promise<Record<string, boolean>> {
-  return { competitive: true, portia: true, proposal_generation: true, battlecard_generation: true, strategy_generation: true };
+// Two-tier cascade: L4 sets a company-wide ceiling per (feature, level 1-3) in
+// feature_level_access; an L3 manager can further narrow (never widen) for their own direct
+// reports via feature_team_restrictions, keyed by manager_profile_id. Absence from either table
+// means "not restricted at that tier" — default is enabled.
+async function getEffectiveFeatureAccess(sb: SupabaseClient, requester: Requester): Promise<Record<string, boolean>> {
+  const { data: flags } = await sb.from("feature_flags").select("key");
+  const keys = ((flags ?? []) as { key: string }[]).map((f) => f.key);
+
+  if (requester.isPrv || requester.authorityLevel >= 4) {
+    return Object.fromEntries(keys.map((k) => [k, true]));
+  }
+
+  const { data: ceilingRows } = await sb
+    .from("feature_level_access")
+    .select("feature_key, enabled")
+    .eq("authority_level", requester.authorityLevel);
+  const ceiling = new Map(((ceilingRows ?? []) as { feature_key: string; enabled: boolean }[]).map((r) => [r.feature_key, r.enabled]));
+
+  let restricted = new Set<string>();
+  if (requester.supervisorProfileId) {
+    const { data: teamRows } = await sb
+      .from("feature_team_restrictions")
+      .select("feature_key")
+      .eq("manager_profile_id", requester.supervisorProfileId);
+    restricted = new Set(((teamRows ?? []) as { feature_key: string }[]).map((r) => r.feature_key));
+  }
+
+  const result: Record<string, boolean> = {};
+  for (const key of keys) {
+    const ceilingValue = ceiling.get(key) ?? true;
+    result[key] = ceilingValue && !restricted.has(key);
+  }
+  return result;
 }
 
 async function getActivePricingConfigVersionId(sb: SupabaseClient): Promise<string | null> {

@@ -7,18 +7,19 @@ import {
 import { useAuth } from '@/contexts/AuthContext'
 import { cn, authorityColor } from '@/lib/utils'
 
-const NAV_ITEMS = [
-  { to: '/deals',      label: 'Deals & Quotes',    icon: LayoutDashboard },
-  { to: '/products',   label: 'Products',           icon: Package },
-  { to: '/competitive',label: 'Competitive',        icon: Swords },
-  { to: '/portia',     label: 'Portia',             icon: MessageSquare },
-  { to: '/settings',   label: 'Settings',           icon: Settings },
+const ALL_NAV_ITEMS = [
+  { to: '/deals',      label: 'Deals & Quotes',    icon: LayoutDashboard, featureKey: null },
+  { to: '/products',   label: 'Products',           icon: Package,         featureKey: null },
+  { to: '/competitive',label: 'Competitive',        icon: Swords,          featureKey: 'competitive' },
+  { to: '/portia',     label: 'Portia',             icon: MessageSquare,   featureKey: 'portia' },
+  { to: '/settings',   label: 'Settings',           icon: Settings,        featureKey: null },
 ]
 
 export function AppLayout() {
-  const { profile, signOut } = useAuth()
+  const { profile, signOut, hasFeature } = useAuth()
   const navigate = useNavigate()
   const [collapsed, setCollapsed] = useState(false)
+  const NAV_ITEMS = ALL_NAV_ITEMS.filter((item) => !item.featureKey || hasFeature(item.featureKey))
 
   async function handleSignOut() {
     await signOut()

@@ -1,6 +1,7 @@
 import { createContext, useContext, useEffect, useState, ReactNode } from 'react'
 import { supabase } from '@/lib/supabase'
 import { USER_BY_EMAIL } from '@/lib/users'
+import { loadFeatureAccessState, effectiveAccess, EMPTY_FEATURE_ACCESS_STATE, type FeatureAccessState } from '@/lib/featureAccess'
 import type { Database } from '@/types/database'
 
 type Profile = Database['public']['Tables']['profiles']['Row']
@@ -12,6 +13,9 @@ interface AuthContextValue {
   profile: Profile | null
   loading: boolean
   _prv: boolean
+  hasFeature: (featureKey: string) => boolean
+  featureAccessState: FeatureAccessState
+  refreshFeatureAccess: () => Promise<void>
   signIn: (email: string) => Promise<{ error: string | null }>
   signOut: () => Promise<void>
 }
@@ -22,6 +26,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<{ id: string; email: string } | null>(null)
   const [profile, setProfile] = useState<Profile | null>(null)
   const [loading, setLoading] = useState(true)
+  const [featureAccessState, setFeatureAccessState] = useState<FeatureAccessState>(EMPTY_FEATURE_ACCESS_STATE)
+
+  async function refreshFeatureAccess(supervisorProfileId: string | null = profile?.supervisor_profile_id ?? null) {
+    setFeatureAccessState(await loadFeatureAccessState(supervisorProfileId))
+  }
 
   async function loadProfileByEmail(email: string) {
     const { data } = await supabase
@@ -53,6 +62,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         } as any
         setUser({ id: profile.id, email: savedEmail })
         setProfile(profile)
+        refreshFeatureAccess(profile.supervisor_profile_id)
       }).finally(() => setLoading(false))
     } else {
       setLoading(false)
@@ -81,6 +91,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     localStorage.setItem(DEMO_EMAIL_KEY, email)
     setUser({ id: data!.id, email })
     setProfile(data)
+    await refreshFeatureAccess(data!.supervisor_profile_id)
     return { error: null }
   }
 
@@ -88,10 +99,24 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     localStorage.removeItem(DEMO_EMAIL_KEY)
     setUser(null)
     setProfile(null)
+    setFeatureAccessState(EMPTY_FEATURE_ACCESS_STATE)
+  }
+
+  function hasFeature(featureKey: string): boolean {
+    if (!profile) return true
+    return effectiveAccess(
+      featureKey,
+      { authorityLevel: profile.authority_level, isPrv: profile.a43ac9 ?? false, supervisorProfileId: profile.supervisor_profile_id },
+      featureAccessState
+    )
   }
 
   return (
-    <AuthContext.Provider value={{ user, profile, loading, _prv: profile?.a43ac9 ?? false, signIn, signOut }}>
+    <AuthContext.Provider value={{
+      user, profile, loading, _prv: profile?.a43ac9 ?? false,
+      hasFeature, featureAccessState, refreshFeatureAccess,
+      signIn, signOut,
+    }}>
       {children}
     </AuthContext.Provider>
   )

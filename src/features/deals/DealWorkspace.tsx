@@ -34,6 +34,12 @@ interface Props {
   onClose: () => void
 }
 
+const MODE_FEATURE_KEYS: Partial<Record<'quote' | 'proposal' | 'battlecard' | 'strategy', string>> = {
+  proposal: 'proposal_generation',
+  battlecard: 'battlecard_generation',
+  strategy: 'strategy_generation',
+}
+
 const EMPTY_INPUTS: Omit<DealInputs, 'deal_id'> = {
   student_count: 0,
   faculty_count: 0,
@@ -50,7 +56,7 @@ const EMPTY_INPUTS: Omit<DealInputs, 'deal_id'> = {
 }
 
 export function DealWorkspace({ deal, onClose }: Props) {
-  const { profile } = useAuth()
+  const { profile, hasFeature } = useAuth()
   const [products, setProducts] = useState<Product[]>([])
   const [productFacts, setProductFacts] = useState<Record<string, ProductFact[]>>({})
   const [matrix, setMatrix] = useState<MatrixRow[]>([])
@@ -120,6 +126,14 @@ export function DealWorkspace({ deal, onClose }: Props) {
     }
     load()
   }, [deal.id])
+
+  // If the loaded/saved centerMode points at a feature that's since been disabled for this
+  // user, fall back to 'quote' rather than rendering a mode they can no longer reach via the
+  // (now-hidden) tab button.
+  useEffect(() => {
+    const key = MODE_FEATURE_KEYS[centerMode]
+    if (key && !hasFeature(key)) setCenterMode('quote')
+  }, [centerMode, hasFeature])
 
   useEffect(() => {
     if (!dropdownOpen) return
@@ -299,7 +313,9 @@ export function DealWorkspace({ deal, onClose }: Props) {
       <div className="flex-1 flex flex-col min-w-0 border-r border-neutral-200">
         <div className="panel-header">
           <div className="flex items-center gap-1">
-            {(['quote', 'proposal', 'battlecard', 'strategy'] as const).map((m) => (
+            {(['quote', 'proposal', 'battlecard', 'strategy'] as const)
+              .filter((m) => !MODE_FEATURE_KEYS[m] || hasFeature(MODE_FEATURE_KEYS[m]!))
+              .map((m) => (
               <button
                 key={m}
                 onClick={() => setCenterMode(m)}
