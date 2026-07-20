@@ -515,26 +515,16 @@ function PowerGraderFields({ sel, inputs, powerGraderContext, onChange }: {
     <>
       <p className="text-xs text-neutral-400">Assignments</p>
       <div className="grid grid-cols-2 gap-2">
-        <Row label="Instr. pages">
-          <input type="number" className="select-base" min={0} step={0.5} value={pagesPerInstruction} onChange={(e) => onChange({ pages_per_instruction: Number(e.target.value) || 0 })} />
-        </Row>
-        <Row label="Sub. pages">
-          <input type="number" className="select-base" min={0} step={0.5} value={pagesPerSubmission} onChange={(e) => onChange({ pages_per_submission: Number(e.target.value) || 0 })} />
-        </Row>
+        <NumField label="Instr. pages" step={0.5} value={pagesPerInstruction} onChange={(v) => onChange({ pages_per_instruction: v })} />
+        <NumField label="Sub. pages" step={0.5} value={pagesPerSubmission} onChange={(v) => onChange({ pages_per_submission: v })} />
       </div>
 
       <p className="text-xs text-neutral-400 mt-2">Quizzes / exams</p>
       <div className="grid grid-cols-2 gap-2">
-        <Row label="Instr. pages">
-          <input type="number" className="select-base" min={0} step={0.5} value={pagesPerQuizInstruction} onChange={(e) => onChange({ pages_per_quiz_instruction: Number(e.target.value) || 0 })} />
-        </Row>
-        <Row label="Sub. pages">
-          <input type="number" className="select-base" min={0} step={0.5} value={pagesPerQuizSubmission} onChange={(e) => onChange({ pages_per_quiz_submission: Number(e.target.value) || 0 })} />
-        </Row>
+        <NumField label="Instr. pages" step={0.5} value={pagesPerQuizInstruction} onChange={(v) => onChange({ pages_per_quiz_instruction: v })} />
+        <NumField label="Sub. pages" step={0.5} value={pagesPerQuizSubmission} onChange={(v) => onChange({ pages_per_quiz_submission: v })} />
       </div>
-      <Row label="Quizzes/month">
-        <input type="number" className="select-base" min={0} value={quizzesPerMonth} onChange={(e) => onChange({ quizzes_per_month: Number(e.target.value) || 0 })} />
-      </Row>
+      <NumField label="Quizzes/month" value={quizzesPerMonth} onChange={(v) => onChange({ quizzes_per_month: v })} />
 
       {calc && (
         <p className="text-xs text-neutral-400 mt-0.5">
@@ -640,11 +630,11 @@ function Row({ label, children }: { label: string; children: React.ReactNode }) 
   )
 }
 
-function NumField({ label, value, onChange }: { label: string; value: number; onChange: (v: number) => void }) {
+function NumField({ label, value, onChange, step }: { label: string; value: number; onChange: (v: number) => void; step?: number }) {
   return (
     <div>
       <label className="label-base">{label}</label>
-      <input type="number" className="input-base py-1.5 text-sm" value={value || ''} placeholder="0" onChange={(e) => onChange(Number(e.target.value) || 0)} min={0} />
+      <input type="number" className="input-base py-1.5 text-sm" value={value || ''} placeholder="0" onChange={(e) => onChange(Number(e.target.value) || 0)} min={0} step={step ?? 1} />
     </div>
   )
 }
