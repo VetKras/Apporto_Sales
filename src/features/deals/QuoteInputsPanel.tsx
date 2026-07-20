@@ -41,6 +41,18 @@ const OPTION_ROLE_LABEL: Record<string, string> = {
   examspace: 'Secure Exam Environment',
 }
 
+// Quick-select presets — a shortcut on top of the existing à-la-carte selection, not a separate
+// pricing engine. Each preset just checks the right boxes; every product still prices through its
+// own formula and shows as its own line on the receipt (CoTutor's per-student rate, PowerGrader's
+// platform cost, TrustEd's per-assignment cost — additive, nothing blended into one bundle number).
+// Tier 3 includes ExamSpace because TrustEd's own unlock rule requires it alongside CoTutor and
+// PowerGrader — see TRUSTED_GATE_SLUGS.
+const TIER_PRESETS: { id: string; label: string; sublabel: string; slugs: string[] }[] = [
+  { id: 'tier1', label: 'Tier 1', sublabel: 'CoTutor only', slugs: ['cotutor'] },
+  { id: 'tier2', label: 'Tier 2', sublabel: '+ PowerGrader', slugs: ['cotutor', 'powergrader'] },
+  { id: 'tier3', label: 'Tier 3', sublabel: '+ ExamSpace + TrustEd', slugs: ['cotutor', 'powergrader', 'examspace', 'trusted'] },
+]
+
 function defaultSelectedProduct(p: Product): SelectedProduct {
   const base: SelectedProduct = { product_id: p.id, product_slug: p.slug, product_name: p.name }
   switch (p.slug) {
@@ -96,6 +108,27 @@ export function QuoteInputsPanel({ inputs, products, pricingModels, cotutorConte
   function updateSel(productId: string, patch: Partial<SelectedProduct>) {
     update({ selected_products: inputs.selected_products.map((s) => s.product_id === productId ? { ...s, ...patch } : s) })
   }
+  function applyTierPreset(slugs: string[]) {
+    const next: SelectedProduct[] = []
+    for (const slug of slugs) {
+      const p = products.find((pr) => pr.slug === slug)
+      if (!p) continue
+      const existing = inputs.selected_products.find((s) => s.product_slug === slug)
+      if (existing) { next.push(existing); continue }
+      let newSel = defaultSelectedProduct(p)
+      // Same shared assignments/mo sync as toggleProduct() — avoid landing on mismatched
+      // defaults (CoTutor 4 vs PowerGrader 5) when a preset adds both at once.
+      if (slug === 'cotutor') {
+        const pg = next.find((s) => s.product_slug === 'powergrader') ?? inputs.selected_products.find((s) => s.product_slug === 'powergrader')
+        if (pg?.assignments_per_month != null) newSel = { ...newSel, assignments_per_course: pg.assignments_per_month }
+      } else if (slug === 'powergrader') {
+        const ct = next.find((s) => s.product_slug === 'cotutor') ?? inputs.selected_products.find((s) => s.product_slug === 'cotutor')
+        if (ct?.assignments_per_course != null) newSel = { ...newSel, assignments_per_month: ct.assignments_per_course }
+      }
+      next.push(newSel)
+    }
+    update({ selected_products: next })
+  }
   function findPrice(tierName: string, pricingType?: string): number | null {
     return pricingModels.find((m) => m.tier_name === tierName && (pricingType ? m.pricing_type === pricingType : true))?.default_price ?? null
   }
@@ -115,6 +148,27 @@ export function QuoteInputsPanel({ inputs, products, pricingModels, cotutorConte
 
       <Section label="Apporto AI Suite" expanded={suiteExpanded} onToggle={() => setSuiteExpanded((e) => !e)}>
         <div className="space-y-4">
+          {/* Quick-select — shortcut on top of à-la-carte selection below, not a separate
+              pricing engine. Each product still prices through its own formula. */}
+          <div className="grid grid-cols-3 gap-1.5">
+            {TIER_PRESETS.map((tier) => {
+              const isActive = selectedSlugs.size === tier.slugs.length && tier.slugs.every((s) => selectedSlugs.has(s))
+              return (
+                <button
+                  key={tier.id}
+                  onClick={() => applyTierPreset(tier.slugs)}
+                  className={cn(
+                    'rounded-lg border px-2 py-2 text-left transition-colors',
+                    isActive ? 'border-brand-400 bg-brand-50' : 'border-neutral-200 hover:border-brand-200'
+                  )}
+                >
+                  <div className="text-xs font-semibold text-neutral-900">{tier.label}</div>
+                  <div className="text-xs text-neutral-400">{tier.sublabel}</div>
+                </button>
+              )
+            })}
+          </div>
+
           {/* Step 1: options */}
           <div className="space-y-1.5">
             <p className="text-xs text-neutral-400">Select the products in this deal.</p>
