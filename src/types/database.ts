@@ -467,6 +467,12 @@ export interface Database {
           status: string
           metadata: Json
           notes: string | null
+          contact_first_name: string | null
+          contact_last_name: string | null
+          contact_email: string | null
+          contact_phone: string | null
+          hubspot_deal_id: string | null
+          hubspot_contact_id: string | null
           created_at: string
           updated_at: string
         }
@@ -477,6 +483,12 @@ export interface Database {
           status?: string
           metadata?: Json
           notes?: string | null
+          contact_first_name?: string | null
+          contact_last_name?: string | null
+          contact_email?: string | null
+          contact_phone?: string | null
+          hubspot_deal_id?: string | null
+          hubspot_contact_id?: string | null
         }
         Update: {
           customer_name?: string
@@ -485,6 +497,12 @@ export interface Database {
           status?: string
           metadata?: Json
           notes?: string | null
+          contact_first_name?: string | null
+          contact_last_name?: string | null
+          contact_email?: string | null
+          contact_phone?: string | null
+          hubspot_deal_id?: string | null
+          hubspot_contact_id?: string | null
         }
       }
       context_reviews: {

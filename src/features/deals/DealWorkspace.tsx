@@ -80,9 +80,18 @@ export function DealWorkspace({ deal, onClose }: Props) {
   const [deletingId, setDeletingId] = useState<string | null>(null)
 
   const [hsModalOpen, setHsModalOpen] = useState(false)
-  const [hsEmail, setHsEmail] = useState('')
+  const [hsEmail, setHsEmail] = useState(deal.contact_email ?? '')
+  const [hsFirstName, setHsFirstName] = useState(deal.contact_first_name ?? '')
+  const [hsLastName, setHsLastName] = useState(deal.contact_last_name ?? '')
+  const [hsPhone, setHsPhone] = useState(deal.contact_phone ?? '')
+  const [hsNotes, setHsNotes] = useState(deal.notes ?? '')
+  const [hsStages, setHsStages] = useState<{ id: string; label: string }[]>([])
+  const [hsStageId, setHsStageId] = useState(deal.stage ?? '')
+  const [hsLoadingStages, setHsLoadingStages] = useState(false)
   const [hsPushing, setHsPushing] = useState(false)
   const [hsResult, setHsResult] = useState<{ type: 'success' | 'error'; message: string; url?: string } | null>(null)
+  const [hubspotDealId, setHubspotDealId] = useState(deal.hubspot_deal_id)
+  const [hubspotContactId, setHubspotContactId] = useState(deal.hubspot_contact_id)
 
   const [inputs, setInputs] = useState<Omit<DealInputs, 'deal_id'>>(EMPTY_INPUTS)
 
@@ -241,33 +250,71 @@ export function DealWorkspace({ deal, onClose }: Props) {
     })
   }
 
+  async function callHubSpotAction(action: string, hsPayload?: Record<string, unknown>) {
+    const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string
+    const res = await fetch(
+      `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/hubspot-action`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${supabaseAnonKey}` },
+        body: JSON.stringify({ action, payload: hsPayload }),
+      }
+    )
+    return res.json()
+  }
+
+  async function openHubSpotModal() {
+    setHsModalOpen(true)
+    setHsResult(null)
+    setHsLoadingStages(true)
+    try {
+      const json = await callHubSpotAction('get_pipeline_stages')
+      if (json.success) {
+        setHsStages(json.stages ?? [])
+        if (!hsStageId && json.stages?.length) setHsStageId(json.stages[0].id)
+      }
+    } catch {
+      // Non-fatal — stage picker just stays empty; push still works without a stage.
+    }
+    setHsLoadingStages(false)
+  }
+
   async function handleHubSpotPush() {
     setHsPushing(true)
     setHsResult(null)
     try {
-      const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string
-      const res = await fetch(
-        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/hubspot-action`,
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${supabaseAnonKey}`,
-          },
-          body: JSON.stringify({
-            action: 'push_deal',
-            payload: {
-              dealName: deal.customer_name,
-              amount: quoteResult?.final_total ?? undefined,
-              contactEmail: hsEmail.trim() || undefined,
-            },
-          }),
-        }
-      )
-      const json = await res.json()
+      const lineItems = (quoteResult?.lines ?? []).map((l) => ({
+        name: `${l.product_name} — ${l.tier_label}`,
+        quantity: l.quantity,
+        price: l.unit_price,
+      }))
+      const json = await callHubSpotAction('push_deal', {
+        dealName: deal.customer_name,
+        amount: quoteResult?.final_total ?? undefined,
+        dealStageId: hsStageId || undefined,
+        contactEmail: hsEmail.trim() || undefined,
+        contactFirstName: hsFirstName.trim() || undefined,
+        contactLastName: hsLastName.trim() || undefined,
+        contactPhone: hsPhone.trim() || undefined,
+        lineItems,
+        notes: hsNotes.trim() || undefined,
+        existingHubspotDealId: hubspotDealId ?? undefined,
+        existingHubspotContactId: hubspotContactId ?? undefined,
+      })
       if (json.success) {
-        setHsResult({ type: 'success', message: `Deal created in HubSpot.`, url: json.hubspotUrl })
-        setHsEmail('')
+        setHsResult({ type: 'success', message: json.wasUpdate ? 'Deal updated in HubSpot.' : 'Deal created in HubSpot.', url: json.hubspotUrl })
+        setHubspotDealId(json.dealId ?? null)
+        setHubspotContactId(json.contactId ?? null)
+        await supabase.from('deals').update({
+          hubspot_deal_id: json.dealId ?? null,
+          hubspot_contact_id: json.contactId ?? null,
+          contact_first_name: hsFirstName.trim() || null,
+          contact_last_name: hsLastName.trim() || null,
+          contact_email: hsEmail.trim() || null,
+          contact_phone: hsPhone.trim() || null,
+          stage: hsStageId || null,
+          notes: hsNotes.trim() || null,
+        }).eq('id', deal.id)
       } else {
         setHsResult({ type: 'error', message: json.error ?? 'Push failed.' })
       }
@@ -414,7 +461,7 @@ export function DealWorkspace({ deal, onClose }: Props) {
               </button>
             )}
             <button
-              onClick={() => { setHsModalOpen(true); setHsResult(null) }}
+              onClick={openHubSpotModal}
               className="btn-secondary py-1.5 text-xs border-[#FF7A59] text-[#FF7A59] hover:bg-orange-50"
               title="Push deal to HubSpot CRM"
             >
@@ -463,14 +510,14 @@ export function DealWorkspace({ deal, onClose }: Props) {
 
     {hsModalOpen && (
       <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
-        <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md mx-4 overflow-hidden">
-          <div className="flex items-center justify-between px-5 py-4 border-b border-neutral-200">
+        <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg mx-4 overflow-hidden max-h-[85vh] flex flex-col">
+          <div className="flex items-center justify-between px-5 py-4 border-b border-neutral-200 flex-shrink-0">
             <div className="flex items-center gap-3">
               <div className="w-8 h-8 rounded-lg bg-[#FF7A59] flex items-center justify-center flex-shrink-0">
                 <span className="text-white font-bold text-xs">HS</span>
               </div>
               <div>
-                <div className="text-sm font-semibold text-neutral-900">Push to HubSpot</div>
+                <div className="text-sm font-semibold text-neutral-900">{hubspotDealId ? 'Update HubSpot deal' : 'Push to HubSpot'}</div>
                 <div className="text-xs text-neutral-500">{deal.customer_name}</div>
               </div>
             </div>
@@ -479,7 +526,7 @@ export function DealWorkspace({ deal, onClose }: Props) {
             </button>
           </div>
 
-          <div className="px-5 py-4 space-y-4">
+          <div className="px-5 py-4 space-y-4 overflow-y-auto">
             <div className="bg-neutral-50 rounded-lg px-4 py-3 text-sm space-y-1">
               <div className="flex justify-between">
                 <span className="text-neutral-500">Deal name</span>
@@ -491,21 +538,65 @@ export function DealWorkspace({ deal, onClose }: Props) {
                   {quoteResult ? formatCurrency(quoteResult.final_total) : 'No quote — $0'}
                 </span>
               </div>
+              {hubspotDealId && (
+                <p className="text-xs text-neutral-400 pt-1">Already pushed — this will update the existing HubSpot deal, not create a new one.</p>
+              )}
             </div>
 
             <div>
-              <label className="label-base">Contact email (optional)</label>
-              <input
-                type="email"
-                className="input-base"
-                placeholder="contact@institution.edu"
-                value={hsEmail}
-                onChange={(e) => setHsEmail(e.target.value)}
-                autoComplete="email"
+              <div className="text-xs font-semibold text-neutral-700 mb-2">Products in this quote</div>
+              {!quoteResult || quoteResult.lines.length === 0 ? (
+                <p className="text-xs text-neutral-400">No quote calculated yet — line items will be empty. Calculate a quote first.</p>
+              ) : (
+                <div className="space-y-1">
+                  {quoteResult.lines.map((l, i) => (
+                    <div key={i} className="flex items-center justify-between text-xs bg-neutral-50 rounded px-2.5 py-1.5">
+                      <span className="text-neutral-700">{l.product_name} — {l.tier_label} × {l.quantity.toLocaleString()}</span>
+                      <span className="font-medium text-neutral-900 flex-shrink-0 ml-2">{formatCurrency(l.unit_price)}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="label-base">Contact first name</label>
+                <input type="text" className="input-base" value={hsFirstName} onChange={(e) => setHsFirstName(e.target.value)} autoComplete="given-name" />
+              </div>
+              <div>
+                <label className="label-base">Contact last name</label>
+                <input type="text" className="input-base" value={hsLastName} onChange={(e) => setHsLastName(e.target.value)} autoComplete="family-name" />
+              </div>
+              <div>
+                <label className="label-base">Contact email</label>
+                <input type="email" className="input-base" placeholder="contact@institution.edu" value={hsEmail} onChange={(e) => setHsEmail(e.target.value)} autoComplete="email" />
+              </div>
+              <div>
+                <label className="label-base">Contact phone</label>
+                <input type="tel" className="input-base" value={hsPhone} onChange={(e) => setHsPhone(e.target.value)} autoComplete="tel" />
+              </div>
+            </div>
+
+            <div>
+              <label className="label-base">Deal stage</label>
+              <select className="select-base" value={hsStageId} onChange={(e) => setHsStageId(e.target.value)} disabled={hsLoadingStages || hsStages.length === 0}>
+                {hsLoadingStages && <option>Loading stages…</option>}
+                {!hsLoadingStages && hsStages.length === 0 && <option value="">Default (new deal)</option>}
+                {hsStages.map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}
+              </select>
+            </div>
+
+            <div>
+              <label className="label-base">Action items / what's left</label>
+              <textarea
+                className="input-base text-sm"
+                rows={3}
+                placeholder="e.g. Waiting on procurement sign-off, needs updated ExamSpace seat count from IT…"
+                value={hsNotes}
+                onChange={(e) => setHsNotes(e.target.value)}
               />
-              <p className="text-xs text-neutral-400 mt-1">
-                If provided, a contact will be created/found in HubSpot and linked to this deal.
-              </p>
+              <p className="text-xs text-neutral-400 mt-1">Saved to this deal and posted as a note on the HubSpot deal timeline.</p>
             </div>
 
             {hsResult && (
@@ -535,7 +626,7 @@ export function DealWorkspace({ deal, onClose }: Props) {
             )}
           </div>
 
-          <div className="flex justify-end gap-2 px-5 py-4 border-t border-neutral-200 bg-neutral-50">
+          <div className="flex justify-end gap-2 px-5 py-4 border-t border-neutral-200 bg-neutral-50 flex-shrink-0">
             <button className="btn-secondary" onClick={() => setHsModalOpen(false)}>
               {hsResult?.type === 'success' ? 'Close' : 'Cancel'}
             </button>
@@ -546,7 +637,7 @@ export function DealWorkspace({ deal, onClose }: Props) {
                 disabled={hsPushing}
               >
                 {hsPushing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />}
-                {hsPushing ? 'Pushing…' : 'Push to HubSpot'}
+                {hsPushing ? 'Pushing…' : hubspotDealId ? 'Update in HubSpot' : 'Push to HubSpot'}
               </button>
             )}
           </div>

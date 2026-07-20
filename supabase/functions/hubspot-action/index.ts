@@ -43,6 +43,13 @@ async function hubspotFetch(
   return { ok: res.ok, status: res.status, data };
 }
 
+// Standard HubSpot-defined object pairs (deal<->contact, deal<->line_item, deal<->note) can be
+// associated via this default-association shorthand without needing to know the numeric
+// association type ID — HubSpot resolves it to whatever its own standard default is.
+async function associateDefault(token: string, fromType: string, fromId: string, toType: string, toId: string) {
+  await hubspotFetch(token, `/crm/v4/objects/${fromType}/${fromId}/associations/default/${toType}/${toId}`, "PUT");
+}
+
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { status: 200, headers: corsHeaders });
@@ -50,7 +57,7 @@ Deno.serve(async (req: Request) => {
 
   try {
     const { action, payload } = await req.json() as {
-      action: "test_connection" | "push_deal" | "push_contact";
+      action: "test_connection" | "push_deal" | "push_contact" | "get_pipeline_stages";
       payload?: Record<string, unknown>;
     };
 
@@ -78,26 +85,68 @@ Deno.serve(async (req: Request) => {
       );
     }
 
-    // ── push_deal ──────────────────────────────────────────────────────────────
-    if (action === "push_deal") {
-      const { dealName, amount, contactEmail, contactFirstName, contactLastName } =
-        payload as {
-          dealName: string;
-          amount?: number;
-          contactEmail?: string;
-          contactFirstName?: string;
-          contactLastName?: string;
-        };
+    // ── get_pipeline_stages ────────────────────────────────────────────────────
+    // Deal stages are pipeline-specific IDs configured per HubSpot account — fetched live rather
+    // than hardcoded, so the "Push to HubSpot" stage picker always reflects the real pipeline.
+    if (action === "get_pipeline_stages") {
+      const result = await hubspotFetch(token, "/crm/v3/pipelines/deals");
+      if (!result.ok) {
+        return new Response(
+          JSON.stringify({ error: `Failed to load HubSpot pipelines (${result.status}).` }),
+          { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+        );
+      }
+      const pipelines = (result.data as { results?: { id: string; label: string; stages: { id: string; label: string; displayOrder: number }[] }[] })?.results ?? [];
+      const defaultPipeline = pipelines.find((p) => p.id === "default") ?? pipelines[0];
+      const stages = (defaultPipeline?.stages ?? [])
+        .slice()
+        .sort((a, b) => a.displayOrder - b.displayOrder)
+        .map((s) => ({ id: s.id, label: s.label }));
+      return new Response(
+        JSON.stringify({ success: true, pipelineId: defaultPipeline?.id ?? null, stages }),
+        { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
+    }
 
-      // 1. Create the deal
-      const dealRes = await hubspotFetch(token, "/crm/v3/objects/deals", "POST", {
-        properties: {
-          dealname: dealName,
-          amount: amount != null ? String(amount) : undefined,
-          dealstage: "appointmentscheduled",
-          pipeline: "default",
-        },
-      });
+    // ── push_deal ──────────────────────────────────────────────────────────────
+    // Pushes everything HubSpot needs to generate the real customer-facing quote: deal (amount +
+    // stage), contact, itemized line items (one per quote line — ad-hoc, not tied to a synced
+    // HubSpot product catalog), and a Note carrying the rep's "what's left" text. If
+    // existingHubspotDealId/existingHubspotContactId are provided (this internal deal has been
+    // pushed before), updates those records in place instead of creating duplicates — the caller
+    // is responsible for persisting the returned IDs back onto the internal deal row.
+    if (action === "push_deal") {
+      const {
+        dealName, amount, dealStageId,
+        contactEmail, contactFirstName, contactLastName, contactPhone,
+        lineItems, notes,
+        existingHubspotDealId, existingHubspotContactId,
+      } = payload as {
+        dealName: string;
+        amount?: number;
+        dealStageId?: string;
+        contactEmail?: string;
+        contactFirstName?: string;
+        contactLastName?: string;
+        contactPhone?: string;
+        lineItems?: { name: string; quantity: number; price: number }[];
+        notes?: string;
+        existingHubspotDealId?: string;
+        existingHubspotContactId?: string;
+      };
+
+      // 1. Create or update the deal
+      const dealProps: Record<string, string | undefined> = {
+        dealname: dealName,
+        amount: amount != null ? String(amount) : undefined,
+        pipeline: "default",
+      };
+      if (dealStageId) dealProps.dealstage = dealStageId;
+      else if (!existingHubspotDealId) dealProps.dealstage = "appointmentscheduled";
+
+      const dealRes = existingHubspotDealId
+        ? await hubspotFetch(token, `/crm/v3/objects/deals/${existingHubspotDealId}`, "PATCH", { properties: dealProps })
+        : await hubspotFetch(token, "/crm/v3/objects/deals", "POST", { properties: dealProps });
 
       if (!dealRes.ok) {
         const msg = (dealRes.data as { message?: string })?.message ?? `HubSpot error ${dealRes.status}`;
@@ -108,39 +157,36 @@ Deno.serve(async (req: Request) => {
       }
 
       const dealId = (dealRes.data as { id: string }).id;
-      let contactId: string | null = null;
+      let contactId: string | null = existingHubspotContactId ?? null;
 
-      // 2. Optionally create/find contact and associate
+      // 2. Create/update contact and associate
       if (contactEmail) {
-        // Try to find existing contact by email first
-        const searchRes = await hubspotFetch(token, "/crm/v3/objects/contacts/search", "POST", {
-          filterGroups: [{ filters: [{ propertyName: "email", operator: "EQ", value: contactEmail }] }],
-          properties: ["email", "firstname", "lastname"],
-          limit: 1,
-        });
-
-        if (searchRes.ok) {
-          const results = (searchRes.data as { results?: { id: string }[] })?.results ?? [];
-          if (results.length > 0) {
-            contactId = results[0].id;
-          }
-        }
-
-        // Create if not found
         if (!contactId) {
-          const contactRes = await hubspotFetch(token, "/crm/v3/objects/contacts", "POST", {
-            properties: {
-              email: contactEmail,
-              firstname: contactFirstName ?? "",
-              lastname: contactLastName ?? "",
-            },
+          const searchRes = await hubspotFetch(token, "/crm/v3/objects/contacts/search", "POST", {
+            filterGroups: [{ filters: [{ propertyName: "email", operator: "EQ", value: contactEmail }] }],
+            properties: ["email", "firstname", "lastname"],
+            limit: 1,
           });
-          if (contactRes.ok) {
-            contactId = (contactRes.data as { id: string }).id;
+          if (searchRes.ok) {
+            const results = (searchRes.data as { results?: { id: string }[] })?.results ?? [];
+            if (results.length > 0) contactId = results[0].id;
           }
         }
 
-        // Associate contact → deal
+        const contactProps = {
+          email: contactEmail,
+          firstname: contactFirstName ?? "",
+          lastname: contactLastName ?? "",
+          phone: contactPhone ?? "",
+        };
+
+        if (contactId) {
+          await hubspotFetch(token, `/crm/v3/objects/contacts/${contactId}`, "PATCH", { properties: contactProps });
+        } else {
+          const contactRes = await hubspotFetch(token, "/crm/v3/objects/contacts", "POST", { properties: contactProps });
+          if (contactRes.ok) contactId = (contactRes.data as { id: string }).id;
+        }
+
         if (contactId) {
           await hubspotFetch(
             token,
@@ -151,11 +197,50 @@ Deno.serve(async (req: Request) => {
         }
       }
 
+      // 3. Line items — on an update, clear out whatever was pushed last time and recreate from
+      // the current quote, rather than trying to diff/reconcile individual rows.
+      if (existingHubspotDealId) {
+        const existingRes = await hubspotFetch(token, `/crm/v4/objects/deals/${existingHubspotDealId}/associations/line_items`);
+        const existingIds = ((existingRes.data as { results?: { toObjectId: string }[] })?.results ?? []).map((r) => r.toObjectId);
+        for (const id of existingIds) {
+          await hubspotFetch(token, `/crm/v3/objects/line_items/${id}`, "DELETE");
+        }
+      }
+      for (const item of lineItems ?? []) {
+        const liRes = await hubspotFetch(token, "/crm/v3/objects/line_items", "POST", {
+          properties: {
+            name: item.name,
+            quantity: String(item.quantity),
+            price: String(item.price),
+          },
+        });
+        if (liRes.ok) {
+          const lineItemId = (liRes.data as { id: string }).id;
+          await associateDefault(token, "line_items", lineItemId, "deals", dealId);
+        }
+      }
+
+      // 4. Note — "what's left" / action items, visible on the deal timeline in HubSpot.
+      if (notes && notes.trim()) {
+        const noteRes = await hubspotFetch(token, "/crm/v3/objects/notes", "POST", {
+          properties: {
+            hs_note_body: notes,
+            hs_timestamp: Date.now(),
+          },
+        });
+        if (noteRes.ok) {
+          const noteId = (noteRes.data as { id: string }).id;
+          await associateDefault(token, "notes", noteId, "deals", dealId);
+          if (contactId) await associateDefault(token, "notes", noteId, "contacts", contactId);
+        }
+      }
+
       return new Response(
         JSON.stringify({
           success: true,
           dealId,
           contactId,
+          wasUpdate: !!existingHubspotDealId,
           hubspotUrl: `https://app.hubspot.com/contacts/deals/${dealId}`,
         }),
         { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
