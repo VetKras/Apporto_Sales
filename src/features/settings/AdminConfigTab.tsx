@@ -2,12 +2,16 @@ import { useState, useEffect } from 'react'
 import { supabase } from '@/lib/supabase'
 import {
   loadAllPricingConfigs, loadPricingModelsForVersion, loadCoTutorPricingContext,
-  calculateCoTutorPrice, DEFAULT_RULES,
+  loadPowerGraderPricingContext, loadTrustEdPricingContext,
+  calculateCoTutorPrice, calculatePowerGraderPrice, calculateTrustEdPrice, DEFAULT_RULES,
 } from '@/lib/pricing-engine'
-import type { PricingRules, CoTutorPricingAssumptions, CoTutorAiModel } from '@/lib/pricing-engine'
+import type {
+  PricingRules, CoTutorPricingAssumptions, CoTutorAiModel,
+  PowerGraderPricingAssumptions, TrustEdPricingAssumptions,
+} from '@/lib/pricing-engine'
 import { upsertIntegrationSetting, getAllIntegrationSettings } from '@/lib/db'
 import { formatCurrency, cn } from '@/lib/utils'
-import { Save, Loader2, CheckCircle, AlertCircle } from 'lucide-react'
+import { Save, Loader2, CheckCircle, AlertCircle, Lock } from 'lucide-react'
 import type { Database } from '@/types/database'
 
 type PricingModel = Database['public']['Tables']['pricing_models']['Row']
@@ -15,11 +19,10 @@ type PricingConfigVersion = Database['public']['Tables']['pricing_config_version
 
 const RULES_PROVIDER = 'pricing_rules'
 
-// PowerGrader/TrustEd/ExamSpace stay in the generic tier table below — CoTutor no longer has
-// pricing_models rows (formula-driven, see the dedicated "CoTutor Pricing Engine" section).
+// ExamSpace stays in the generic tier table below — CoTutor/PowerGrader/TrustEd are all
+// formula-driven now, each with its own dedicated section above it (PowerGrader keeps one flat
+// row here too, Setup Fee, edited inline in its own card instead of this generic table).
 const PRODUCT_LABELS: Record<string, string> = {
-  'seed-product-powergrader':'PowerGrader',
-  'seed-product-trusted':    'TrustEd',
   'seed-product-examspace':  'ExamSpace',
 }
 
@@ -27,12 +30,20 @@ const PRODUCT_LABELS: Record<string, string> = {
 // used only for the live preview readout below, not saved anywhere.
 const COTUTOR_REFERENCE = { students: 10000, assignmentsPerMonth: 4, contractMonthsPerYear: 9 as const }
 
+// PowerGrader_Pricing_Calculator_Customer.xlsx's own pre-filled example — used only for the live
+// preview readout below, not saved anywhere.
+const POWERGRADER_REFERENCE = { students: 2000, pagesPerInstruction: 0.5, pagesPerSubmission: 6, assignmentsPerMonth: 5, pagesPerQuizInstruction: 0.5, pagesPerQuizSubmission: 1, quizzesPerMonth: 1 }
+
+// TrustEd_Pricing_Models.xlsx "Model 2 - TrustEd Only" sheet's own reference inputs — used only
+// for the live preview readout below, not saved anywhere.
+const TRUSTED_REFERENCE = { students: 7200, assignmentsPerMonth: 3 }
+
 function calcMargin(price: number, cost: number): string {
   if (!price || price === 0) return '—'
   return `${(((price - cost) / price) * 100).toFixed(1)}%`
 }
 
-export function AdminConfigTab({ profileId }: { profileId: string | null }) {
+export function AdminConfigTab({ profileId, isL4 }: { profileId: string | null; isL4: boolean }) {
   const [activeConfig, setActiveConfig] = useState<PricingConfigVersion | null>(null)
   const [models, setModels] = useState<PricingModel[]>([])
   const [editedModels, setEditedModels] = useState<Record<string, { price: string; cost: string }>>({})
@@ -40,11 +51,15 @@ export function AdminConfigTab({ profileId }: { profileId: string | null }) {
   const [cotutorAssumptions, setCotutorAssumptions] = useState<CoTutorPricingAssumptions | null>(null)
   const [cotutorModels, setCotutorModels] = useState<CoTutorAiModel[]>([])
   const [editedCotutorModels, setEditedCotutorModels] = useState<Record<string, { input: string; cached: string; output: string }>>({})
+  const [powerGraderAssumptions, setPowerGraderAssumptions] = useState<PowerGraderPricingAssumptions | null>(null)
+  const [trustedAssumptions, setTrustedAssumptions] = useState<TrustEdPricingAssumptions | null>(null)
   const [loading, setLoading] = useState(true)
   const [savingPrices, setSavingPrices] = useState<string | null>(null)
   const [savingRules, setSavingRules] = useState(false)
   const [savingCotutorAssumptions, setSavingCotutorAssumptions] = useState(false)
   const [savingCotutorModels, setSavingCotutorModels] = useState(false)
+  const [savingPowerGraderAssumptions, setSavingPowerGraderAssumptions] = useState(false)
+  const [savingTrustedAssumptions, setSavingTrustedAssumptions] = useState(false)
   const [toast, setToast] = useState<{ type: 'success' | 'error'; msg: string } | null>(null)
   const [section, setSection] = useState<'prices' | 'rules'>('prices')
 
@@ -62,11 +77,15 @@ export function AdminConfigTab({ profileId }: { profileId: string | null }) {
       const active = configs.find((c) => c.is_active)
       setActiveConfig(active ?? null)
       if (active) {
-        const [mods, cotutorCtx] = await Promise.all([
+        const [mods, cotutorCtx, powerGraderCtx, trustedCtx] = await Promise.all([
           loadPricingModelsForVersion(active.id),
           loadCoTutorPricingContext(active.id).catch(() => null),
+          loadPowerGraderPricingContext(active.id).catch(() => null),
+          loadTrustEdPricingContext(active.id).catch(() => null),
         ])
         setModels(mods)
+        setPowerGraderAssumptions(powerGraderCtx?.assumptions ?? null)
+        setTrustedAssumptions(trustedCtx?.assumptions ?? null)
         const init: Record<string, { price: string; cost: string }> = {}
         mods.forEach((m) => {
           init[m.id] = {
@@ -147,6 +166,53 @@ export function AdminConfigTab({ profileId }: { profileId: string | null }) {
     if (failed.length) showToast('error', `${failed.length} model row(s) failed to save.`)
     else showToast('success', 'CoTutor AI model rates saved.')
     setSavingCotutorModels(false)
+  }
+
+  function updatePowerGraderAssumption(patch: Partial<PowerGraderPricingAssumptions>) {
+    setPowerGraderAssumptions((prev) => (prev ? { ...prev, ...patch } : prev))
+  }
+
+  async function savePowerGraderAssumptions() {
+    if (!powerGraderAssumptions) return
+    setSavingPowerGraderAssumptions(true)
+    const { error } = await supabase
+      .from('powergrader_pricing_assumptions')
+      .update({
+        input_token_price_per_token: powerGraderAssumptions.input_token_price_per_token,
+        output_token_price_per_token: powerGraderAssumptions.output_token_price_per_token,
+        tokens_per_page: powerGraderAssumptions.tokens_per_page,
+        token_buffer_multiplier: powerGraderAssumptions.token_buffer_multiplier,
+        platform_cost_multiplier: powerGraderAssumptions.platform_cost_multiplier,
+        pwg_context_pages_per_submission: powerGraderAssumptions.pwg_context_pages_per_submission,
+        base_cost_per_submission: powerGraderAssumptions.base_cost_per_submission,
+        charm_price_rounding_increment: powerGraderAssumptions.charm_price_rounding_increment,
+      })
+      .eq('id', powerGraderAssumptions.id)
+    if (error) showToast('error', `Failed to save PowerGrader assumptions: ${error.message}`)
+    else showToast('success', 'PowerGrader pricing assumptions saved.')
+    setSavingPowerGraderAssumptions(false)
+  }
+
+  function updateTrustedAssumption(patch: Partial<TrustEdPricingAssumptions>) {
+    setTrustedAssumptions((prev) => (prev ? { ...prev, ...patch } : prev))
+  }
+
+  async function saveTrustedAssumptions() {
+    if (!trustedAssumptions) return
+    setSavingTrustedAssumptions(true)
+    const { error } = await supabase
+      .from('trusted_pricing_assumptions')
+      .update({
+        target_gross_margin: trustedAssumptions.target_gross_margin,
+        free_with_cotutor: trustedAssumptions.free_with_cotutor,
+        storage_cost_per_assignment: trustedAssumptions.storage_cost_per_assignment,
+        analysis_cost_per_assignment: trustedAssumptions.analysis_cost_per_assignment,
+        fixed_infra_per_student_year: trustedAssumptions.fixed_infra_per_student_year,
+      })
+      .eq('id', trustedAssumptions.id)
+    if (error) showToast('error', `Failed to save TrustEd assumptions: ${error.message}`)
+    else showToast('success', 'TrustEd pricing assumptions saved.')
+    setSavingTrustedAssumptions(false)
   }
 
   async function savePrices(productId: string) {
@@ -391,6 +457,225 @@ export function AdminConfigTab({ profileId }: { profileId: string | null }) {
                     })}
                   </tbody>
                 </table>
+              </div>
+            </>
+          )}
+
+          <div className="border-t border-neutral-200 pt-6">
+            <h3 className="text-sm font-semibold text-neutral-900">PowerGrader</h3>
+            <p className="text-xs text-neutral-500 mt-0.5">Formula-driven monthly platform cost — see Deals & Quotes for how these assumptions turn into a price.</p>
+          </div>
+
+          {!powerGraderAssumptions ? (
+            <p className="text-sm text-neutral-400">PowerGrader pricing assumptions unavailable — check that migration 024 has been applied.</p>
+          ) : (
+            <div className="card p-5 space-y-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h4 className="text-sm font-semibold text-neutral-900">Pricing Formula</h4>
+                  <p className="text-xs text-neutral-500 mt-0.5">Token costs, buffer, and the platform multiplier that sets the effective margin.</p>
+                </div>
+                <button className="btn-primary py-1.5 text-xs flex items-center gap-1.5" onClick={savePowerGraderAssumptions} disabled={savingPowerGraderAssumptions}>
+                  {savingPowerGraderAssumptions ? <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Saving…</> : <><Save className="w-3.5 h-3.5" /> Save</>}
+                </button>
+              </div>
+              <div className="grid grid-cols-3 gap-4">
+                <div>
+                  <label className="label-base">Platform Cost Multiplier</label>
+                  <input type="number" min="1" step="0.1" className="input-base py-1.5 text-sm"
+                    value={powerGraderAssumptions.platform_cost_multiplier}
+                    onChange={(e) => updatePowerGraderAssumption({ platform_cost_multiplier: Number(e.target.value) })} />
+                  <p className="text-xs text-neutral-400 mt-1">$1.00 of raw cost becomes ${powerGraderAssumptions.platform_cost_multiplier.toFixed(2)} of price. Raise → price up.</p>
+                </div>
+                <div>
+                  <label className="label-base">Base Cost / Submission</label>
+                  <div className="flex items-center gap-1">
+                    <span className="text-neutral-500 text-sm">$</span>
+                    <input type="number" min="0" step="0.001" className="input-base py-1.5 text-sm"
+                      value={powerGraderAssumptions.base_cost_per_submission}
+                      onChange={(e) => updatePowerGraderAssumption({ base_cost_per_submission: Number(e.target.value) })} />
+                  </div>
+                  <p className="text-xs text-neutral-400 mt-1">Fixed per-submission cost, independent of token usage.</p>
+                </div>
+                <div>
+                  <label className="label-base">Rounding Increment</label>
+                  <div className="flex items-center gap-1">
+                    <span className="text-neutral-500 text-sm">$</span>
+                    <input type="number" min="1" step="1" className="input-base py-1.5 text-sm"
+                      value={powerGraderAssumptions.charm_price_rounding_increment}
+                      onChange={(e) => updatePowerGraderAssumption({ charm_price_rounding_increment: Number(e.target.value) })} />
+                  </div>
+                  <p className="text-xs text-neutral-400 mt-1">Monthly price floors to this increment, minus $1 (e.g. $6,499).</p>
+                </div>
+                <div>
+                  <label className="label-base">Input Token Price</label>
+                  <div className="flex items-center gap-1">
+                    <span className="text-neutral-500 text-sm">$</span>
+                    <input type="number" min="0" step="0.0000001" className="input-base py-1.5 text-sm"
+                      value={powerGraderAssumptions.input_token_price_per_token}
+                      onChange={(e) => updatePowerGraderAssumption({ input_token_price_per_token: Number(e.target.value) })} />
+                  </div>
+                  <p className="text-xs text-neutral-400 mt-1">Per token. GPT-4o rate as of the source workbook.</p>
+                </div>
+                <div>
+                  <label className="label-base">Output Token Price</label>
+                  <div className="flex items-center gap-1">
+                    <span className="text-neutral-500 text-sm">$</span>
+                    <input type="number" min="0" step="0.0000001" className="input-base py-1.5 text-sm"
+                      value={powerGraderAssumptions.output_token_price_per_token}
+                      onChange={(e) => updatePowerGraderAssumption({ output_token_price_per_token: Number(e.target.value) })} />
+                  </div>
+                  <p className="text-xs text-neutral-400 mt-1">Per token.</p>
+                </div>
+                <div>
+                  <label className="label-base">Tokens / Page</label>
+                  <input type="number" min="0" step="10" className="input-base py-1.5 text-sm"
+                    value={powerGraderAssumptions.tokens_per_page}
+                    onChange={(e) => updatePowerGraderAssumption({ tokens_per_page: Number(e.target.value) })} />
+                  <p className="text-xs text-neutral-400 mt-1">Average tokens per page of instruction/submission text.</p>
+                </div>
+                <div>
+                  <label className="label-base">Token Buffer Multiplier</label>
+                  <input type="number" min="1" step="0.05" className="input-base py-1.5 text-sm"
+                    value={powerGraderAssumptions.token_buffer_multiplier}
+                    onChange={(e) => updatePowerGraderAssumption({ token_buffer_multiplier: Number(e.target.value) })} />
+                  <p className="text-xs text-neutral-400 mt-1">Safety margin on token estimates (1.3 = 30% buffer).</p>
+                </div>
+                <div>
+                  <label className="label-base">PWG Context Pages / Submission</label>
+                  <input type="number" min="0" step="0.1" className="input-base py-1.5 text-sm"
+                    value={powerGraderAssumptions.pwg_context_pages_per_submission}
+                    onChange={(e) => updatePowerGraderAssumption({ pwg_context_pages_per_submission: Number(e.target.value) })} />
+                  <p className="text-xs text-neutral-400 mt-1">Extra context pages PowerGrader itself adds per submission.</p>
+                </div>
+                {(() => {
+                  const setupFeeModel = models.find((m) => m.product_id === 'seed-product-powergrader' && m.tier_name === 'Setup Fee')
+                  if (!setupFeeModel) return null
+                  const edited = editedModels[setupFeeModel.id] ?? { price: '', cost: '' }
+                  return (
+                    <div>
+                      <label className="label-base">Setup Fee (one-time)</label>
+                      <div className="flex items-center gap-1">
+                        <span className="text-neutral-500 text-sm">$</span>
+                        <input type="number" min="0" step="1" className="input-base py-1.5 text-sm"
+                          value={edited.price}
+                          onChange={(e) => setEditedModels((prev) => ({ ...prev, [setupFeeModel.id]: { ...prev[setupFeeModel.id], price: e.target.value } }))} />
+                      </div>
+                      <p className="text-xs text-neutral-400 mt-1">Pilot/new-customer onboarding fee. Saved with the button above.</p>
+                    </div>
+                  )
+                })()}
+              </div>
+              {(() => {
+                const preview = calculatePowerGraderPrice(
+                  POWERGRADER_REFERENCE.students, POWERGRADER_REFERENCE.pagesPerInstruction, POWERGRADER_REFERENCE.pagesPerSubmission,
+                  POWERGRADER_REFERENCE.assignmentsPerMonth, POWERGRADER_REFERENCE.pagesPerQuizInstruction, POWERGRADER_REFERENCE.pagesPerQuizSubmission,
+                  POWERGRADER_REFERENCE.quizzesPerMonth, { assumptions: powerGraderAssumptions }
+                )
+                return (
+                  <p className="text-xs text-neutral-500 bg-neutral-50 rounded px-3 py-2 border border-neutral-200">
+                    Reference price at {POWERGRADER_REFERENCE.students.toLocaleString()} students / {POWERGRADER_REFERENCE.assignmentsPerMonth} assignments-mo / {POWERGRADER_REFERENCE.quizzesPerMonth} quiz-mo:{' '}
+                    <span className="font-semibold text-neutral-800">${preview.monthlyPlatformCost.toLocaleString()}/mo</span>
+                    {' '}(${preview.costPerStudentPerMonth.toFixed(2)}/student/mo, COGS ${preview.monthlyCogs.toLocaleString()}/mo)
+                  </p>
+                )
+              })()}
+            </div>
+          )}
+
+          <div className="border-t border-neutral-200 pt-6">
+            <h3 className="text-sm font-semibold text-neutral-900">TrustEd</h3>
+            <p className="text-xs text-neutral-500 mt-0.5">Formula-driven, billed per assignment analyzed — bottom-up from real storage/analysis COGS.</p>
+          </div>
+
+          {!trustedAssumptions ? (
+            <p className="text-sm text-neutral-400">TrustEd pricing assumptions unavailable — check that migration 025 has been applied.</p>
+          ) : (
+            <>
+              <div className="card p-5 space-y-4">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-1.5">
+                    <h4 className="text-sm font-semibold text-neutral-900">Business Levers</h4>
+                    {!isL4 && <span className="flex items-center gap-1 text-xs text-neutral-400"><Lock className="w-3 h-3" /> Level 4 only</span>}
+                  </div>
+                  {isL4 && (
+                    <button className="btn-primary py-1.5 text-xs flex items-center gap-1.5" onClick={saveTrustedAssumptions} disabled={savingTrustedAssumptions}>
+                      {savingTrustedAssumptions ? <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Saving…</> : <><Save className="w-3.5 h-3.5" /> Save</>}
+                    </button>
+                  )}
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="label-base">Target Gross Margin %</label>
+                    <div className="flex items-center gap-1">
+                      <input type="number" min="0" max="94" step="0.1" className="input-base py-1.5 text-sm" disabled={!isL4}
+                        value={(trustedAssumptions.target_gross_margin * 100).toFixed(1)}
+                        onChange={(e) => updateTrustedAssumption({ target_gross_margin: Number(e.target.value) / 100 })} />
+                      <span className="text-neutral-500 text-sm">%</span>
+                    </div>
+                    <p className="text-xs text-neutral-400 mt-1">Deliberately low relative to CoTutor's — kept cheap to drive initial adoption.</p>
+                  </div>
+                  <div>
+                    <label className="label-base">Free with CoTutor</label>
+                    <select className="select-base" disabled={!isL4} value={trustedAssumptions.free_with_cotutor ? 'yes' : 'no'}
+                      onChange={(e) => updateTrustedAssumption({ free_with_cotutor: e.target.value === 'yes' })}>
+                      <option value="no">No — priced by formula</option>
+                      <option value="yes">Yes — $0 whenever CoTutor is also in the deal</option>
+                    </select>
+                    <p className="text-xs text-neutral-400 mt-1">COGS still tracked internally even when free — nothing is hidden, just not billed.</p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="card p-5 space-y-4">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h4 className="text-sm font-semibold text-neutral-900">Technical Usage Assumptions</h4>
+                    <p className="text-xs text-neutral-500 mt-0.5">Real per-assignment COGS. Level 3+ editable.</p>
+                  </div>
+                  <button className="btn-primary py-1.5 text-xs flex items-center gap-1.5" onClick={saveTrustedAssumptions} disabled={savingTrustedAssumptions}>
+                    {savingTrustedAssumptions ? <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Saving…</> : <><Save className="w-3.5 h-3.5" /> Save</>}
+                  </button>
+                </div>
+                <div className="grid grid-cols-3 gap-4">
+                  <div>
+                    <label className="label-base">Storage Cost / Assignment</label>
+                    <div className="flex items-center gap-1">
+                      <span className="text-neutral-500 text-sm">$</span>
+                      <input type="number" min="0" step="0.01" className="input-base py-1.5 text-sm"
+                        value={trustedAssumptions.storage_cost_per_assignment}
+                        onChange={(e) => updateTrustedAssumption({ storage_cost_per_assignment: Number(e.target.value) })} />
+                    </div>
+                  </div>
+                  <div>
+                    <label className="label-base">Analysis Cost / Assignment</label>
+                    <div className="flex items-center gap-1">
+                      <span className="text-neutral-500 text-sm">$</span>
+                      <input type="number" min="0" step="0.01" className="input-base py-1.5 text-sm"
+                        value={trustedAssumptions.analysis_cost_per_assignment}
+                        onChange={(e) => updateTrustedAssumption({ analysis_cost_per_assignment: Number(e.target.value) })} />
+                    </div>
+                  </div>
+                  <div>
+                    <label className="label-base">Fixed Infra $/Student/Yr</label>
+                    <div className="flex items-center gap-1">
+                      <span className="text-neutral-500 text-sm">$</span>
+                      <input type="number" min="0" step="0.01" className="input-base py-1.5 text-sm"
+                        value={trustedAssumptions.fixed_infra_per_student_year}
+                        onChange={(e) => updateTrustedAssumption({ fixed_infra_per_student_year: Number(e.target.value) })} />
+                    </div>
+                  </div>
+                </div>
+                {(() => {
+                  const preview = calculateTrustEdPrice(TRUSTED_REFERENCE.students, TRUSTED_REFERENCE.assignmentsPerMonth, false, { assumptions: trustedAssumptions })
+                  return (
+                    <p className="text-xs text-neutral-500 bg-neutral-50 rounded px-3 py-2 border border-neutral-200">
+                      Reference price at {TRUSTED_REFERENCE.students.toLocaleString()} students / {TRUSTED_REFERENCE.assignmentsPerMonth} assignments-mo (not free — CoTutor excluded from this reference):{' '}
+                      <span className="font-semibold text-neutral-800">${preview.pricePerStudentPerYear.toFixed(2)}/student/yr</span>
+                      {' '}(COGS ${(preview.annualCogs / TRUSTED_REFERENCE.students).toFixed(2)}/student/yr, {preview.totalAssignmentsPerYear.toLocaleString()} assignments/yr)
+                    </p>
+                  )
+                })()}
               </div>
             </>
           )}

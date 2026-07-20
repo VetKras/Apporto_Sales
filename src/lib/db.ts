@@ -27,6 +27,8 @@ export type PricingModelRow       = Tables['pricing_models']['Row']
 export type PricingBracketRow     = Tables['pricing_brackets']['Row']
 export type CoTutorPricingAssumptionsRow = Tables['cotutor_pricing_assumptions']['Row']
 export type CoTutorAiModelRow     = Tables['cotutor_ai_models']['Row']
+export type PowerGraderPricingAssumptionsRow = Tables['powergrader_pricing_assumptions']['Row']
+export type TrustEdPricingAssumptionsRow = Tables['trusted_pricing_assumptions']['Row']
 export type DealRow               = Tables['deals']['Row']
 export type DealInputRow          = Tables['deal_inputs']['Row']
 export type QuoteLineRow          = Tables['quote_lines']['Row']
@@ -107,6 +109,30 @@ export async function getCoTutorAiModels(versionId: string): Promise<CoTutorAiMo
     .order('sort_order', { ascending: true })
   if (error) throw error
   return (data ?? []) as CoTutorAiModelRow[]
+}
+
+// --- PowerGrader formula-driven pricing --------------------------------------
+
+export async function getPowerGraderPricingAssumptions(versionId: string): Promise<PowerGraderPricingAssumptionsRow | null> {
+  const { data, error } = await supabase
+    .from('powergrader_pricing_assumptions')
+    .select('*')
+    .eq('config_version_id', versionId)
+    .maybeSingle()
+  if (error) throw error
+  return data as PowerGraderPricingAssumptionsRow | null
+}
+
+// --- TrustEd formula-driven pricing -------------------------------------------
+
+export async function getTrustEdPricingAssumptions(versionId: string): Promise<TrustEdPricingAssumptionsRow | null> {
+  const { data, error } = await supabase
+    .from('trusted_pricing_assumptions')
+    .select('*')
+    .eq('config_version_id', versionId)
+    .maybeSingle()
+  if (error) throw error
+  return data as TrustEdPricingAssumptionsRow | null
 }
 
 // --- Suite Tier pricing brackets --------------------------------------------

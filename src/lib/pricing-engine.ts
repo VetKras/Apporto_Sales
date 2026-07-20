@@ -12,6 +12,8 @@ import {
   getPricingModelsForVersion,
   getCoTutorPricingAssumptions,
   getCoTutorAiModels,
+  getPowerGraderPricingAssumptions,
+  getTrustEdPricingAssumptions,
   getIntegrationSetting,
   replaceQuoteLines,
   saveQuoteSnapshot,
@@ -25,6 +27,8 @@ import type {
   QuoteSnapshotRow,
   CoTutorPricingAssumptionsRow,
   CoTutorAiModelRow,
+  PowerGraderPricingAssumptionsRow,
+  TrustEdPricingAssumptionsRow,
 } from '@/lib/db'
 
 export type PricingModel = PricingModelRow
@@ -32,6 +36,8 @@ export type PricingConfigVersion = PricingConfigRow
 export type QuoteSnapshot = QuoteSnapshotRow
 export type CoTutorPricingAssumptions = CoTutorPricingAssumptionsRow
 export type CoTutorAiModel = CoTutorAiModelRow
+export type PowerGraderPricingAssumptions = PowerGraderPricingAssumptionsRow
+export type TrustEdPricingAssumptions = TrustEdPricingAssumptionsRow
 
 /**
  * CoTutor formula-driven pricing. Replaces the old flat 20/15/10 tiers and the hardcoded
@@ -119,11 +125,146 @@ export function calculateCoTutorPrice(
   }
 }
 
-/** CoTutor billing months per year — workbook recognizes 9 (academic year) or 12 (full year) only.
- *  DealInputs.contract_term (annual/2-year/3-year) is renewal length, a different axis from this.
- *  Defaulting to 9 (academic year) until SelectedProduct exposes an explicit field for it. */
-function cotutorContractMonthsPerYear(): 9 | 12 {
+/** Billing months per academic year — shared by CoTutor and PowerGrader, whose source workbooks
+ *  both bill against usage-per-month rather than a flat annual rate. 9 (academic year) or 12
+ *  (full year) are the only values either source recognizes. DealInputs.contract_term
+ *  (annual/2-year/3-year) is renewal length, a different axis from this. Defaulting to 9
+ *  (academic year) until SelectedProduct exposes an explicit field for it. */
+function academicMonthsPerYear(): 9 | 12 {
   return 9
+}
+
+/**
+ * PowerGrader formula-driven pricing. Replaces the 3 flat, unsourced pricing_models rows
+ * ($15/student/yr, $120/faculty/yr, $4/submission — none of which appear in any source file).
+ * Assumptions come from powergrader_pricing_assumptions, loaded once per active config version.
+ */
+export interface PowerGraderPricingContext {
+  assumptions: PowerGraderPricingAssumptionsRow
+}
+
+export interface PowerGraderCalculation {
+  monthlyPlatformCost: number
+  annualPlatformCost: number
+  /** Unrounded — informational only, not a billed amount. */
+  costPerStudentPerMonth: number
+  monthlyCogs: number
+  annualCogs: number
+}
+
+export async function loadPowerGraderPricingContext(configVersionId: string): Promise<PowerGraderPricingContext> {
+  const assumptions = await getPowerGraderPricingAssumptions(configVersionId)
+  if (!assumptions) throw new Error(`No PowerGrader pricing assumptions found for config version ${configVersionId}`)
+  return { assumptions }
+}
+
+/**
+ * Direct port of PowerGrader_Pricing_Calculator_Customer.xlsx "Customer Cost" sheet, cell C18 —
+ * the actual customer-facing calculator currently in use. Cross-checked against
+ * PowerGrader_Pricing_Calculator_Internal.xlsx's parallel formula (same constants, same
+ * structure). Every intermediate matches the workbook's own terms so this can be checked
+ * cell-by-cell against the source.
+ *
+ * Reference check (do not remove): at studentCount=2000, pagesPerInstruction=0.5,
+ * pagesPerSubmission=6, assignmentsPerMonth=5, pagesPerQuizInstruction=0.5,
+ * pagesPerQuizSubmission=1, quizzesPerMonth=1, with the seeded assumptions, this must return
+ * monthlyPlatformCost === 6499 and costPerStudentPerMonth === 3.2495 — the workbook's own
+ * pre-filled example. If it doesn't match to the cent, there's a transcription error — diff
+ * against the xlsx cell-by-cell rather than adjusting the formula to force a match.
+ */
+export function calculatePowerGraderPrice(
+  studentCount: number,
+  pagesPerInstruction: number,
+  pagesPerSubmission: number,
+  assignmentsPerMonth: number,
+  pagesPerQuizInstruction: number,
+  pagesPerQuizSubmission: number,
+  quizzesPerMonth: number,
+  ctx: PowerGraderPricingContext
+): PowerGraderCalculation {
+  const a = ctx.assumptions
+
+  const rawCost = (instructionPages: number, submissionPages: number, countPerMonth: number): number => {
+    const inputTokens = (instructionPages + a.pwg_context_pages_per_submission) * studentCount * a.token_buffer_multiplier * a.tokens_per_page * countPerMonth
+    const outputTokens = submissionPages * studentCount * a.token_buffer_multiplier * a.tokens_per_page * countPerMonth
+    const baseCost = a.base_cost_per_submission * studentCount * countPerMonth
+    return inputTokens * a.input_token_price_per_token + outputTokens * a.output_token_price_per_token + baseCost
+  }
+
+  const rawAssignmentCost = rawCost(pagesPerInstruction, pagesPerSubmission, assignmentsPerMonth)
+  const rawQuizCost = rawCost(pagesPerQuizInstruction, pagesPerQuizSubmission, quizzesPerMonth)
+  const monthlyCogs = rawAssignmentCost + rawQuizCost
+
+  const rawMonthlyCustomerCost = monthlyCogs * a.platform_cost_multiplier
+  const inc = a.charm_price_rounding_increment
+  const monthlyPlatformCost = Math.max(0, Math.floor(rawMonthlyCustomerCost / inc) * inc - 1)
+
+  const months = academicMonthsPerYear()
+
+  return {
+    monthlyPlatformCost: round2(monthlyPlatformCost),
+    annualPlatformCost: round2(monthlyPlatformCost * months),
+    costPerStudentPerMonth: studentCount > 0 ? Math.round((monthlyPlatformCost / studentCount) * 10000) / 10000 : 0,
+    monthlyCogs: round2(monthlyCogs),
+    annualCogs: round2(monthlyCogs * months),
+  }
+}
+
+/**
+ * TrustEd formula-driven pricing — bottom-up from real per-assignment COGS (storage + analysis),
+ * priced up via an explicit, adjustable margin. Billed per assignment analyzed, not a flat
+ * per-student rate. Replaces the old flat 'Standalone'/'Bundle Add-on' rows.
+ *
+ * free_with_cotutor is a business lever, not a formula input: when set and the same deal also
+ * includes CoTutor, price is forced to $0 (still returned as an explicit line, not omitted) —
+ * "thrown in as a freebie for every exam that uses CoTutor" was raised as a live option to keep
+ * initial adoption friction low, not baked in as fixed behavior.
+ */
+export interface TrustEdPricingContext {
+  assumptions: TrustEdPricingAssumptionsRow
+}
+
+export interface TrustEdCalculation {
+  cogsPerAssignment: number
+  totalAssignmentsPerYear: number
+  annualCogs: number
+  annualPrice: number
+  pricePerStudentPerYear: number
+  isFree: boolean
+}
+
+export async function loadTrustEdPricingContext(configVersionId: string): Promise<TrustEdPricingContext> {
+  const assumptions = await getTrustEdPricingAssumptions(configVersionId)
+  if (!assumptions) throw new Error(`No TrustEd pricing assumptions found for config version ${configVersionId}`)
+  return { assumptions }
+}
+
+export function calculateTrustEdPrice(
+  studentCount: number,
+  assignmentsAnalyzedPerMonth: number,
+  cotutorAlsoSelected: boolean,
+  ctx: TrustEdPricingContext
+): TrustEdCalculation {
+  const a = ctx.assumptions
+  const months = academicMonthsPerYear()
+
+  const cogsPerAssignment = a.storage_cost_per_assignment + a.analysis_cost_per_assignment
+  const totalAssignmentsPerYear = studentCount * assignmentsAnalyzedPerMonth * months
+  const variableCogs = cogsPerAssignment * totalAssignmentsPerYear
+  const fixedCogs = a.fixed_infra_per_student_year * studentCount
+  const totalCogs = variableCogs + fixedCogs
+
+  const isFree = a.free_with_cotutor && cotutorAlsoSelected
+  const totalPrice = isFree ? 0 : totalCogs / (1 - a.target_gross_margin)
+
+  return {
+    cogsPerAssignment: round2(cogsPerAssignment),
+    totalAssignmentsPerYear,
+    annualCogs: round2(totalCogs),
+    annualPrice: round2(totalPrice),
+    pricePerStudentPerYear: studentCount > 0 ? round2(totalPrice / studentCount) : 0,
+    isFree,
+  }
 }
 
 export interface DealInputs {
@@ -154,7 +295,11 @@ export interface SelectedProduct {
   ai_model?: string
   assignments_per_course?: number
   assignments_per_month?: number
-  pages_per_submission?: 1 | 6
+  pages_per_instruction?: number
+  pages_per_submission?: number
+  quizzes_per_month?: number
+  pages_per_quiz_instruction?: number
+  pages_per_quiz_submission?: number
   lms_platform?: 'Canvas' | 'D2L' | 'Blackboard' | 'Moodle'
   trusted_assignments_per_month?: number
   video_playback?: boolean
@@ -303,12 +448,15 @@ export function calculateQuote(
   version: PricingConfigVersion,
   models: PricingModel[],
   cotutorContext: CoTutorPricingContext,
+  powerGraderContext: PowerGraderPricingContext,
+  trustedContext: TrustEdPricingContext,
   rules: PricingRules = DEFAULT_RULES
 ): QuoteResult {
   const lines: QuoteLine[] = []
+  const cotutorAlsoSelected = inputs.selected_products.some((s) => s.product_slug === 'cotutor')
 
   for (const sel of inputs.selected_products) {
-    lines.push(...buildProductLines(sel, inputs, models, version.id, cotutorContext))
+    lines.push(...buildProductLines(sel, inputs, models, version.id, cotutorContext, powerGraderContext, trustedContext, cotutorAlsoSelected))
   }
 
   const list_total = lines.reduce((s, l) => s + l.list_price, 0)
@@ -413,7 +561,10 @@ function buildProductLines(
   inputs: DealInputs,
   models: PricingModel[],
   configVersionId: string,
-  cotutorContext: CoTutorPricingContext
+  cotutorContext: CoTutorPricingContext,
+  powerGraderContext: PowerGraderPricingContext,
+  trustedContext: TrustEdPricingContext,
+  cotutorAlsoSelected: boolean
 ): QuoteLine[] {
   const find = (tierName: string | null, pricingType: string | null) =>
     models.find(
@@ -430,7 +581,7 @@ function buildProductLines(
       const calc = calculateCoTutorPrice(
         inputs.student_count,
         assignmentsPerMonth,
-        cotutorContractMonthsPerYear(),
+        academicMonthsPerYear(),
         modelId,
         cotutorContext
       )
@@ -455,34 +606,75 @@ function buildProductLines(
     }
 
     case 'powergrader': {
-      const pricingType = sel.pricing_type ?? 'per_student'
-      if (pricingType === 'per_student') {
-        const model = find('Per Student', 'per_student')
-        if (!model) return []
-        return [makeLine(sel, model, 'Per Student', inputs.student_count, 'students/year', sel.override_price ?? model.default_price ?? 0, configVersionId)]
+      // Formula-driven monthly platform cost (PowerGrader_Pricing_Calculator_Customer.xlsx),
+      // annualized via the same academic-months convention as CoTutor. Replaces the old
+      // per_student/per_faculty/per_submission flat-tier picker — none of those three flat rates
+      // were ever sourced from anything (see docs/pricing/00_INDEX.md), and the real billing unit
+      // doesn't fit any of them.
+      const calc = calculatePowerGraderPrice(
+        inputs.student_count,
+        sel.pages_per_instruction ?? 0.5,
+        sel.pages_per_submission ?? 6,
+        sel.assignments_per_month ?? 5,
+        sel.pages_per_quiz_instruction ?? 0.5,
+        sel.pages_per_quiz_submission ?? 1,
+        sel.quizzes_per_month ?? 1,
+        powerGraderContext
+      )
+      const unitPrice = sel.override_price ?? (inputs.student_count > 0 ? round2(calc.annualPlatformCost / inputs.student_count) : 0)
+      const result: QuoteLine[] = [{
+        product_id: sel.product_id,
+        product_name: sel.product_name,
+        pricing_model_id: null,
+        tier_label: `Platform Cost ($${calc.costPerStudentPerMonth.toFixed(2)}/student/mo)`,
+        quantity: inputs.student_count,
+        unit: 'students/year',
+        unit_price: unitPrice,
+        list_price: round2(unitPrice * inputs.student_count),
+        discount_amount: 0,
+        net_price: round2(unitPrice * inputs.student_count),
+        unit_cost: inputs.student_count > 0 ? round2(calc.annualCogs / inputs.student_count) : 0,
+        total_cost: calc.annualCogs,
+        margin_percent: null,
+        config_version_id: configVersionId,
+      }]
+      if (inputs.customer_status === 'new') {
+        const setupModel = find('Setup Fee', 'setup_fee')
+        if (setupModel) result.push(makeLine(sel, setupModel, 'Setup Fee', 1, 'one-time', setupModel.default_price ?? 0, configVersionId))
       }
-      if (pricingType === 'per_faculty') {
-        const model = find('Per Faculty', 'per_faculty')
-        if (!model) return []
-        return [makeLine(sel, model, 'Per Faculty', inputs.faculty_count, 'faculty/year', sel.override_price ?? model.default_price ?? 0, configVersionId)]
-      }
-      if (pricingType === 'per_submission') {
-        const model = find('Per Submission', 'per_submission')
-        if (!model) return []
-        const estimated = inputs.course_sections * 6 * inputs.student_count
-        return [makeLine(sel, model, 'Per Submission (est.)', estimated, 'submissions/year', sel.override_price ?? model.default_price ?? 0, configVersionId)]
-      }
-      return []
+      return result
     }
 
     case 'trusted': {
-      const tier = sel.trusted_tier ?? 'Standalone'
-      const model = find(tier, 'per_student')
-      if (!model) return []
-      const lines: QuoteLine[] = [
-        makeLine(sel, model, tier, inputs.student_count, 'students/year', sel.override_price ?? model.default_price ?? 0, configVersionId)
-      ]
-      if (sel.video_playback && tier === 'Standalone' && inputs.student_count > 0) {
+      // Formula-driven, per assignment analyzed (bottom-up from real storage+analysis COGS) —
+      // replaces the old flat Standalone/Bundle Add-on tiers, which priced the same infra
+      // differently depending on bundling for no cost-based reason.
+      const calc = calculateTrustEdPrice(
+        inputs.student_count,
+        sel.trusted_assignments_per_month ?? 4,
+        cotutorAlsoSelected,
+        trustedContext
+      )
+      const unitPrice = sel.override_price ?? calc.pricePerStudentPerYear
+      const lines: QuoteLine[] = [{
+        product_id: sel.product_id,
+        product_name: sel.product_name,
+        pricing_model_id: null,
+        tier_label: calc.isFree
+          ? 'Included free with CoTutor'
+          : `Integrity Analysis (${calc.totalAssignmentsPerYear} assignments/yr)`,
+        quantity: inputs.student_count,
+        unit: 'students/year',
+        unit_price: unitPrice,
+        list_price: round2(unitPrice * inputs.student_count),
+        discount_amount: 0,
+        net_price: round2(unitPrice * inputs.student_count),
+        unit_cost: inputs.student_count > 0 ? round2(calc.annualCogs / inputs.student_count) : 0,
+        total_cost: calc.annualCogs,
+        margin_percent: null,
+        config_version_id: configVersionId,
+      }]
+      if (sel.video_playback && inputs.student_count > 0) {
         lines.push({
           product_id: sel.product_id,
           product_name: sel.product_name,

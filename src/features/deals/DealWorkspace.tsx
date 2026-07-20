@@ -8,9 +8,9 @@ import { useAuth } from '@/contexts/AuthContext'
 import {
   calculateQuote, loadActivePricingConfig, loadPricingRules, persistQuoteLines,
   persistQuoteSnapshot, loadQuoteSnapshots, removeQuoteSnapshot,
-  buildQuoteSourceTrace, loadCoTutorPricingContext, type DealInputs, type QuoteResult,
+  buildQuoteSourceTrace, loadCoTutorPricingContext, loadPowerGraderPricingContext, loadTrustEdPricingContext, type DealInputs, type QuoteResult,
   type PricingConfigVersion, type PricingModel, type PricingRules,
-  type QuoteSnapshot, type CoTutorPricingContext, DEFAULT_RULES,
+  type QuoteSnapshot, type CoTutorPricingContext, type PowerGraderPricingContext, type TrustEdPricingContext, DEFAULT_RULES,
 } from '@/lib/pricing-engine'
 import {
   PROPOSAL_SECTION_DEFAULTS,
@@ -64,6 +64,8 @@ export function DealWorkspace({ deal, onClose }: Props) {
   const [configVersion, setConfigVersion] = useState<PricingConfigVersion | null>(null)
   const [pricingModels, setPricingModels] = useState<PricingModel[]>([])
   const [cotutorContext, setCotutorContext] = useState<CoTutorPricingContext | null>(null)
+  const [powerGraderContext, setPowerGraderContext] = useState<PowerGraderPricingContext | null>(null)
+  const [trustedContext, setTrustedContext] = useState<TrustEdPricingContext | null>(null)
   const [quoteResult, setQuoteResult] = useState<QuoteResult | null>(null)
   const [pricingRules, setPricingRules] = useState<PricingRules>(DEFAULT_RULES)
   const [saving, setSaving] = useState(false)
@@ -120,6 +122,16 @@ export function DealWorkspace({ deal, onClose }: Props) {
         } catch (e) {
           setConfigError(`CoTutor pricing assumptions unavailable: ${e instanceof Error ? e.message : String(e)}`)
         }
+        try {
+          setPowerGraderContext(await loadPowerGraderPricingContext(config.version.id))
+        } catch (e) {
+          setConfigError(`PowerGrader pricing assumptions unavailable: ${e instanceof Error ? e.message : String(e)}`)
+        }
+        try {
+          setTrustedContext(await loadTrustEdPricingContext(config.version.id))
+        } catch (e) {
+          setConfigError(`TrustEd pricing assumptions unavailable: ${e instanceof Error ? e.message : String(e)}`)
+        }
       } else {
         setConfigError('No active pricing config found. Contact your admin.')
       }
@@ -148,11 +160,13 @@ export function DealWorkspace({ deal, onClose }: Props) {
   function handleCalculate() {
     if (!configVersion || pricingModels.length === 0) return
     if (!cotutorContext) { setConfigError('CoTutor pricing assumptions unavailable — cannot calculate.'); return }
+    if (!powerGraderContext) { setConfigError('PowerGrader pricing assumptions unavailable — cannot calculate.'); return }
+    if (!trustedContext) { setConfigError('TrustEd pricing assumptions unavailable — cannot calculate.'); return }
     if (inputs.selected_products.length === 0) return
     setCalculating(true)
     try {
       const dealInputs: DealInputs = { ...inputs, deal_id: deal.id }
-      const result = calculateQuote(dealInputs, configVersion, pricingModels, cotutorContext, pricingRules)
+      const result = calculateQuote(dealInputs, configVersion, pricingModels, cotutorContext, powerGraderContext, trustedContext, pricingRules)
       setQuoteResult(result)
       setLoadedQuoteId(null)
     } finally {
@@ -284,7 +298,7 @@ export function DealWorkspace({ deal, onClose }: Props) {
           <button
             className="btn-primary py-1.5 text-xs flex-shrink-0"
             onClick={handleCalculate}
-            disabled={calculating || !configVersion || !cotutorContext || inputs.selected_products.length === 0}
+            disabled={calculating || !configVersion || !cotutorContext || !powerGraderContext || !trustedContext || inputs.selected_products.length === 0}
           >
             <Calculator className="w-3.5 h-3.5" />
             Calculate
@@ -304,6 +318,8 @@ export function DealWorkspace({ deal, onClose }: Props) {
             products={products}
             pricingModels={pricingModels}
             cotutorContext={cotutorContext}
+            powerGraderContext={powerGraderContext}
+            trustedContext={trustedContext}
             productFacts={productFacts}
             onInputsChange={setInputs}
           />

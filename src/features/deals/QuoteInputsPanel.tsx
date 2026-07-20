@@ -1,7 +1,11 @@
 import { useState } from 'react'
-import { ChevronDown, ChevronRight, AlertTriangle, AlertCircle, CheckCircle, Info, BookOpen } from 'lucide-react'
+import { ChevronDown, ChevronRight, AlertTriangle, AlertCircle, CheckCircle, Info, BookOpen, Lock } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { calculateCoTutorPrice, type DealInputs, type SelectedProduct, type PricingModel, type CoTutorPricingContext } from '@/lib/pricing-engine'
+import {
+  calculateCoTutorPrice, calculatePowerGraderPrice, calculateTrustEdPrice,
+  type DealInputs, type SelectedProduct, type PricingModel,
+  type CoTutorPricingContext, type PowerGraderPricingContext, type TrustEdPricingContext,
+} from '@/lib/pricing-engine'
 import type { Database } from '@/types/database'
 
 type Product = Database['public']['Tables']['products']['Row']
@@ -12,32 +16,46 @@ interface Props {
   products: Product[]
   pricingModels: PricingModel[]
   cotutorContext: CoTutorPricingContext | null
+  powerGraderContext: PowerGraderPricingContext | null
+  trustedContext: TrustEdPricingContext | null
   productFacts: Record<string, ProductFact[]>
   onInputsChange: (inputs: Omit<DealInputs, 'deal_id'>) => void
 }
 
 const COMPLIANCE_OPTIONS = ['FERPA DPA', 'VPAT/WCAG 2.2 AA', 'LTI 1.3', 'SOC 2 Type II', 'HECVAT']
 
-// CoTutor's formula only recognizes 9 (academic year) or 12 (full year) billing months — a
-// different axis from DealInputs.contract_term (renewal length). Defaulting to 9 until a
-// dedicated field exists for it — see calculateCoTutorPrice() in pricing-engine.ts.
-const COTUTOR_CONTRACT_MONTHS_PER_YEAR = 9
+// CoTutor/PowerGrader/TrustEd formulas only recognize 9 (academic year) or 12 (full year) billing
+// months — a different axis from DealInputs.contract_term (renewal length). Defaulting to 9 until
+// a dedicated field exists for it — see academicMonthsPerYear() in pricing-engine.ts.
+const ACADEMIC_MONTHS_PER_YEAR = 9
+
+// TrustEd is an addon on top of the full suite, not a standalone pick — it only ever prices
+// meaningfully once CoTutor+PowerGrader+ExamSpace are all in the deal (its formula's freebie
+// lever is keyed off CoTutor specifically, and its go-to-market framing is "suite integrity
+// layer," not a product sold alone).
+const TRUSTED_GATE_SLUGS = ['cotutor', 'powergrader', 'examspace']
+
+const OPTION_ROLE_LABEL: Record<string, string> = {
+  cotutor: 'Guided AI Assistant',
+  powergrader: 'Grading',
+  examspace: 'Secure Exam Environment',
+}
 
 function defaultSelectedProduct(p: Product): SelectedProduct {
   const base: SelectedProduct = { product_id: p.id, product_slug: p.slug, product_name: p.name }
   switch (p.slug) {
     // ai_model intentionally left unset — buildProductLines() falls back to the config's
     // default model (cotutor_ai_models.is_default) when none is chosen.
-    case 'cotutor':    return { ...base, assignments_per_course: 4 }
-    case 'powergrader': return { ...base, pricing_type: 'per_student', tier_name: 'Per Student', assignments_per_month: 5, pages_per_submission: 1, lms_platform: 'Canvas' }
-    case 'trusted':    return { ...base, trusted_tier: 'Standalone', trusted_assignments_per_month: 4, video_playback: false }
-    case 'examspace':  return { ...base, examspace_tier: 'Medium', gpu_requirement: false }
+    case 'cotutor':     return { ...base, assignments_per_course: 4 }
+    case 'powergrader': return { ...base, pages_per_instruction: 0.5, pages_per_submission: 6, assignments_per_month: 5, pages_per_quiz_instruction: 0.5, pages_per_quiz_submission: 1, quizzes_per_month: 1, lms_platform: 'Canvas' }
+    case 'trusted':     return { ...base, trusted_assignments_per_month: 4, video_playback: false }
+    case 'examspace':   return { ...base, examspace_tier: 'Medium', gpu_requirement: false }
     default: return base
   }
 }
 
-export function QuoteInputsPanel({ inputs, products, pricingModels, cotutorContext, productFacts, onInputsChange }: Props) {
-  const [productExpanded, setProductExpanded] = useState(true)
+export function QuoteInputsPanel({ inputs, products, pricingModels, cotutorContext, powerGraderContext, trustedContext, productFacts, onInputsChange }: Props) {
+  const [suiteExpanded, setSuiteExpanded] = useState(true)
   const [inputsExpanded, setInputsExpanded] = useState(true)
   const [termsExpanded, setTermsExpanded] = useState(false)
   const [discountExpanded, setDiscountExpanded] = useState(true)
@@ -45,12 +63,23 @@ export function QuoteInputsPanel({ inputs, products, pricingModels, cotutorConte
   function update(partial: Partial<Omit<DealInputs, 'deal_id'>>) {
     onInputsChange({ ...inputs, ...partial })
   }
+
+  const selectedSlugs = new Set(inputs.selected_products.map((s) => s.product_slug))
+  const trustedUnlocked = TRUSTED_GATE_SLUGS.every((slug) => selectedSlugs.has(slug))
+
   function toggleProduct(p: Product) {
     const exists = inputs.selected_products.find((s) => s.product_id === p.id)
-    update({ selected_products: exists
-      ? inputs.selected_products.filter((s) => s.product_id !== p.id)
-      : [...inputs.selected_products, defaultSelectedProduct(p)]
-    })
+    if (exists) {
+      let next = inputs.selected_products.filter((s) => s.product_id !== p.id)
+      // Deselecting one of TrustEd's gate products drops TrustEd too — it can't remain priced
+      // without the suite it depends on.
+      if (TRUSTED_GATE_SLUGS.includes(p.slug)) {
+        next = next.filter((s) => s.product_slug !== 'trusted')
+      }
+      update({ selected_products: next })
+    } else {
+      update({ selected_products: [...inputs.selected_products, defaultSelectedProduct(p)] })
+    }
   }
   function updateSel(productId: string, patch: Partial<SelectedProduct>) {
     update({ selected_products: inputs.selected_products.map((s) => s.product_id === productId ? { ...s, ...patch } : s) })
@@ -59,200 +88,92 @@ export function QuoteInputsPanel({ inputs, products, pricingModels, cotutorConte
     return pricingModels.find((m) => m.tier_name === tierName && (pricingType ? m.pricing_type === pricingType : true))?.default_price ?? null
   }
 
-  const hasExamspace = inputs.selected_products.some((s) => s.product_slug === 'examspace')
+  const hasExamspace = selectedSlugs.has('examspace')
+  const hasCotutor = selectedSlugs.has('cotutor')
   const productCount = inputs.selected_products.length
+
+  const orderedProducts = [...products].sort((a, b) => {
+    if (a.slug === 'trusted') return 1
+    if (b.slug === 'trusted') return -1
+    return 0
+  })
 
   return (
     <div className="divide-y divide-neutral-100">
 
-      <Section label="Products" expanded={productExpanded} onToggle={() => setProductExpanded((e) => !e)}>
-        <div className="space-y-1.5">
-          {products.map((p) => {
-            const sel = inputs.selected_products.find((s) => s.product_id === p.id)
-            const isSelected = !!sel
-            return (
-              <div key={p.id} className={cn('rounded-lg border transition-colors', isSelected ? 'border-brand-300 bg-brand-50' : 'border-neutral-200')}>
-                <button onClick={() => toggleProduct(p)} className="w-full flex items-center gap-2.5 px-3 py-2.5 text-left">
+      <Section label="Apporto AI Suite" expanded={suiteExpanded} onToggle={() => setSuiteExpanded((e) => !e)}>
+        <div className="space-y-4">
+          {/* Step 1: options */}
+          <div className="space-y-1.5">
+            <p className="text-xs text-neutral-400">Select the products in this deal.</p>
+            {orderedProducts.map((p) => {
+              const sel = inputs.selected_products.find((s) => s.product_id === p.id)
+              const isSelected = !!sel
+              const isTrusted = p.slug === 'trusted'
+              const locked = isTrusted && !trustedUnlocked
+
+              return (
+                <button
+                  key={p.id}
+                  onClick={() => !locked && toggleProduct(p)}
+                  disabled={locked}
+                  className={cn(
+                    'w-full flex items-center gap-2.5 px-3 py-2.5 text-left rounded-lg border transition-colors',
+                    locked ? 'border-neutral-100 bg-neutral-50 cursor-not-allowed opacity-60'
+                      : isSelected ? 'border-brand-300 bg-brand-50' : 'border-neutral-200 hover:border-brand-200'
+                  )}
+                >
                   <div className={cn('w-4 h-4 rounded border-2 flex items-center justify-center flex-shrink-0 transition-colors', isSelected ? 'bg-brand-600 border-brand-600' : 'border-neutral-300')}>
                     {isSelected && <div className="w-2 h-2 bg-white rounded-sm" />}
                   </div>
-                  <span className="text-sm font-medium text-neutral-900">{p.name}</span>
-                  <span className="text-xs text-neutral-400 truncate">{p.category}</span>
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-sm font-medium text-neutral-900">{p.name}</span>
+                      {isTrusted && <span className="text-xs bg-neutral-100 text-neutral-500 px-1.5 py-0.5 rounded-full">Addon</span>}
+                    </div>
+                    <span className="text-xs text-neutral-400">{OPTION_ROLE_LABEL[p.slug] ?? p.category}</span>
+                  </div>
+                  {locked && (
+                    <span className="ml-auto flex items-center gap-1 text-xs text-neutral-400 flex-shrink-0">
+                      <Lock className="w-3 h-3" /> Needs CoTutor + PowerGrader + ExamSpace
+                    </span>
+                  )}
                 </button>
+              )
+            })}
+          </div>
 
-                {isSelected && sel && (
-                  <div className="px-3 pb-3 space-y-2 border-t border-brand-100 pt-2.5">
+          {/* Step 2: consolidated configuration for whatever's selected */}
+          {productCount > 0 && (
+            <div className="space-y-4 border-t border-neutral-100 pt-4">
+              <p className="text-xs font-semibold text-neutral-500 uppercase tracking-wide">Configuration</p>
+
+              {inputs.selected_products.map((sel) => {
+                const p = products.find((pr) => pr.id === sel.product_id)
+                if (!p) return null
+                return (
+                  <div key={sel.product_id} className="space-y-2">
+                    <div className="text-xs font-semibold text-neutral-700">{p.name}</div>
 
                     {p.slug === 'cotutor' && (
-                      <>
-                        {!cotutorContext ? (
-                          <p className="text-xs text-amber-600">CoTutor pricing assumptions still loading…</p>
-                        ) : (() => {
-                          const models = cotutorContext.models
-                          const defaultModelId = models.find((m) => m.is_default)?.model_id ?? models[0]?.model_id
-                          const selectedModelId = sel.ai_model ?? defaultModelId
-                          const byProvider = new Map<string, typeof models>()
-                          for (const m of models) {
-                            const list = byProvider.get(m.provider) ?? []
-                            list.push(m)
-                            byProvider.set(m.provider, list)
-                          }
-                          const assignmentsPerMonth = sel.assignments_per_course ?? 4
-                          const calc = inputs.student_count > 0
-                            ? calculateCoTutorPrice(inputs.student_count, assignmentsPerMonth, COTUTOR_CONTRACT_MONTHS_PER_YEAR, selectedModelId, cotutorContext)
-                            : null
-                          return (
-                            <>
-                              <Row label="AI model">
-                                <select
-                                  className="select-base"
-                                  value={selectedModelId}
-                                  onChange={(e) => updateSel(p.id, { ai_model: e.target.value })}
-                                >
-                                  {[...byProvider.entries()].map(([provider, list]) => (
-                                    <optgroup key={provider} label={provider}>
-                                      {list.map((m) => (
-                                        <option key={m.model_id} value={m.model_id}>
-                                          {m.label} — ${m.input_rate_per_1m.toFixed(2)}/${m.output_rate_per_1m.toFixed(2)} per M tok
-                                        </option>
-                                      ))}
-                                    </optgroup>
-                                  ))}
-                                </select>
-                              </Row>
-                              <Row label="Assignments/mo">
-                                <input type="number" className="select-base" min={1} value={sel.assignments_per_course ?? 4} onChange={(e) => updateSel(p.id, { assignments_per_course: Number(e.target.value) || 0 })} />
-                              </Row>
-                              {calc && (
-                                <p className="text-xs text-neutral-400 mt-0.5">
-                                  Formula price: ${calc.customerPricePerStudentPerYear.toFixed(2)}/student/yr
-                                  {' '}(COGS ${calc.totalBlendedCogsPerStudentPerYear.toFixed(2)}, target margin {(cotutorContext.assumptions.target_gross_margin * 100).toFixed(1)}%)
-                                </p>
-                              )}
-                              <OverrideRow value={sel.override_price} onChange={(v) => updateSel(p.id, { override_price: v })} />
-                              {sel.override_price != null && calc && sel.override_price < calc.customerPricePerStudentPerYear && (
-                                <Warn>Override is below the formula-derived price — actual margin will be lower than the {(cotutorContext.assumptions.target_gross_margin * 100).toFixed(1)}% target. Verify before quoting.</Warn>
-                              )}
-                            </>
-                          )
-                        })()}
-                      </>
+                      <CoTutorFields sel={sel} inputs={inputs} cotutorContext={cotutorContext} onChange={(patch) => updateSel(p.id, patch)} />
                     )}
-
                     {p.slug === 'powergrader' && (
-                      <>
-                        <Row label="Pricing mode">
-                          <select className="select-base" value={sel.pricing_type ?? 'per_student'} onChange={(e) => {
-                            const map: Record<string, { type: string; tier: string }> = {
-                              per_student: { type: 'per_student', tier: 'Per Student' },
-                              per_faculty: { type: 'per_faculty', tier: 'Per Faculty' },
-                              per_submission: { type: 'per_submission', tier: 'Per Submission' },
-                            }
-                            const v = map[e.target.value]
-                            updateSel(p.id, { pricing_type: v.type, tier_name: v.tier })
-                          }}>
-                            <option value="per_student">Per Student (${findPrice('Per Student', 'per_student') ?? '—'}/student/yr)</option>
-                            <option value="per_faculty">Per Faculty (${findPrice('Per Faculty', 'per_faculty') ?? '—'}/faculty/yr)</option>
-                            <option value="per_submission">Per Submission (${findPrice('Per Submission', 'per_submission') ?? '—'}/submission)</option>
-                          </select>
-                        </Row>
-                        <Row label="Assign./month">
-                          <input type="number" className="select-base" min={1} value={sel.assignments_per_month ?? 5} onChange={(e) => updateSel(p.id, { assignments_per_month: Number(e.target.value) || 0 })} />
-                        </Row>
-                        <Row label="Pages/submission">
-                          <select className="select-base" value={sel.pages_per_submission ?? 1} onChange={(e) => updateSel(p.id, { pages_per_submission: Number(e.target.value) as 1 | 6 })}>
-                            <option value={1}>1 page (quiz / short answer)</option>
-                            <option value={6}>6 pages (research paper)</option>
-                          </select>
-                          {sel.pages_per_submission === 6 && <Warn>6-page submissions carry ~5× COGS vs 1-page.</Warn>}
-                        </Row>
-                        <Row label="LMS platform">
-                          <select className="select-base" value={sel.lms_platform ?? 'Canvas'} onChange={(e) => updateSel(p.id, { lms_platform: e.target.value as typeof sel.lms_platform })}>
-                            <option>Canvas</option>
-                            <option>D2L</option>
-                            <option>Blackboard</option>
-                            <option>Moodle</option>
-                          </select>
-                          {sel.lms_platform === 'D2L' && <Warn>D2L has known integration challenges — flag for tech review.</Warn>}
-                          {(sel.lms_platform === 'Blackboard' || sel.lms_platform === 'Moodle') && <Warn>{sel.lms_platform} support is limited — confirm integration readiness.</Warn>}
-                        </Row>
-                        <OverrideRow value={sel.override_price} onChange={(v) => updateSel(p.id, { override_price: v })} />
-                      </>
+                      <PowerGraderFields sel={sel} inputs={inputs} powerGraderContext={powerGraderContext} onChange={(patch) => updateSel(p.id, patch)} />
                     )}
-
                     {p.slug === 'trusted' && (
-                      <>
-                        <Row label="Pricing mode">
-                          <select className="select-base" value={sel.trusted_tier ?? 'Standalone'} onChange={(e) => {
-                            updateSel(p.id, { trusted_tier: e.target.value, override_price: undefined })
-                          }}>
-                            <option value="Standalone">Standalone</option>
-                            <option value="Bundle Add-on">Bundle Add-on</option>
-                          </select>
-                          <p className="text-xs text-neutral-400 mt-0.5">Standalone and bundle use different storage/analysis rates — never mix.</p>
-                        </Row>
-                        <Row label="Base rate ($/student/yr)">
-                          <div className="flex items-center">
-                            <span className="inline-flex items-center px-2 h-8 rounded-l-md border border-r-0 border-neutral-300 bg-neutral-50 text-neutral-500 text-xs select-none">$</span>
-                            <input
-                              type="number"
-                              className="select-base rounded-l-none border-l-0"
-                              min={0}
-                              step={0.01}
-                              value={sel.override_price ?? findPrice(sel.trusted_tier ?? 'Standalone', 'per_student') ?? ''}
-                              placeholder={String(findPrice(sel.trusted_tier ?? 'Standalone', 'per_student') ?? '')}
-                              onChange={(e) => updateSel(p.id, { override_price: e.target.value ? Number(e.target.value) : undefined })}
-                            />
-                          </div>
-                          {sel.override_price != null && sel.override_price !== (findPrice(sel.trusted_tier ?? 'Standalone', 'per_student') ?? 0) && (
-                            <p className="text-xs text-amber-600 mt-0.5">
-                              Custom rate — config default is ${findPrice(sel.trusted_tier ?? 'Standalone', 'per_student') ?? '—'}/student/yr. Verify against approved workbook.
-                            </p>
-                          )}
-                        </Row>
-                        <Row label="Assign./month">
-                          <input type="number" className="select-base" min={1} value={sel.trusted_assignments_per_month ?? 4} onChange={(e) => updateSel(p.id, { trusted_assignments_per_month: Number(e.target.value) || 0 })} />
-                        </Row>
-                        <Row label="Video playback">
-                          <select className="select-base" value={sel.video_playback ? 'yes' : 'no'} onChange={(e) => updateSel(p.id, { video_playback: e.target.value === 'yes' })}>
-                            <option value="no">Excluded</option>
-                            <option value="yes">Included (+$6/student/yr)</option>
-                          </select>
-                          {sel.video_playback && sel.trusted_tier !== 'Standalone' && <Warn>Video playback surcharge only applies to Standalone model.</Warn>}
-                        </Row>
-                      </>
+                      <TrustEdFields sel={sel} inputs={inputs} hasCotutor={hasCotutor} trustedContext={trustedContext} onChange={(patch) => updateSel(p.id, patch)} />
                     )}
-
                     {p.slug === 'examspace' && (
-                      <>
-                        <Row label="Tier">
-                          <select className="select-base" value={sel.examspace_tier ?? 'Medium'} onChange={(e) => updateSel(p.id, { examspace_tier: e.target.value })}>
-                            <option value="Container">Container (browser only) — ${findPrice('Container', 'per_student') ?? '—'}/student/yr</option>
-                            <option value="Linux">Linux — ${findPrice('Linux', 'per_student') ?? '—'}/student/yr</option>
-                            <option value="Small">Small (Windows) — ${findPrice('Small', 'per_student') ?? '—'}/student/yr</option>
-                            <option value="Medium">Medium — ${findPrice('Medium', 'per_student') ?? '—'}/student/yr</option>
-                            <option value="Large">Large — ${findPrice('Large', 'per_student') ?? '—'}/student/yr</option>
-                            <option value="GPU">GPU (Windows) — ${findPrice('GPU', 'per_student') ?? '—'}/student/yr</option>
-                          </select>
-                          <p className="text-xs text-neutral-400 mt-0.5">Billed $/student/year, not $/seat-day.</p>
-                        </Row>
-                        <Row label="GPU required">
-                          <select className="select-base" value={sel.gpu_requirement ? 'yes' : 'no'} onChange={(e) => updateSel(p.id, { gpu_requirement: e.target.value === 'yes' })}>
-                            <option value="no">No — standard compute</option>
-                            <option value="yes">Yes — GPU workload</option>
-                          </select>
-                          {sel.gpu_requirement && sel.examspace_tier !== 'GPU' && <Warn>GPU flagged but non-GPU tier selected — verify.</Warn>}
-                        </Row>
-                        <OverrideRow value={sel.override_price} onChange={(v) => updateSel(p.id, { override_price: v })} />
-                      </>
+                      <ExamSpaceFields sel={sel} findPrice={findPrice} onChange={(patch) => updateSel(p.id, patch)} />
                     )}
 
                     <ProductIntel product={p} facts={productFacts[p.id] ?? []} />
                   </div>
-                )}
-              </div>
-            )
-          })}
+                )
+              })}
+            </div>
+          )}
         </div>
       </Section>
 
@@ -396,6 +317,199 @@ export function QuoteInputsPanel({ inputs, products, pricingModels, cotutorConte
   )
 }
 
+function CoTutorFields({ sel, inputs, cotutorContext, onChange }: {
+  sel: SelectedProduct
+  inputs: Omit<DealInputs, 'deal_id'>
+  cotutorContext: CoTutorPricingContext | null
+  onChange: (patch: Partial<SelectedProduct>) => void
+}) {
+  if (!cotutorContext) return <p className="text-xs text-amber-600">CoTutor pricing assumptions still loading…</p>
+
+  const models = cotutorContext.models
+  const defaultModelId = models.find((m) => m.is_default)?.model_id ?? models[0]?.model_id
+  const selectedModelId = sel.ai_model ?? defaultModelId
+  const byProvider = new Map<string, typeof models>()
+  for (const m of models) {
+    const list = byProvider.get(m.provider) ?? []
+    list.push(m)
+    byProvider.set(m.provider, list)
+  }
+  const assignmentsPerMonth = sel.assignments_per_course ?? 4
+  const calc = inputs.student_count > 0
+    ? calculateCoTutorPrice(inputs.student_count, assignmentsPerMonth, ACADEMIC_MONTHS_PER_YEAR, selectedModelId, cotutorContext)
+    : null
+
+  return (
+    <>
+      <Row label="AI model">
+        <select className="select-base" value={selectedModelId} onChange={(e) => onChange({ ai_model: e.target.value })}>
+          {[...byProvider.entries()].map(([provider, list]) => (
+            <optgroup key={provider} label={provider}>
+              {list.map((m) => (
+                <option key={m.model_id} value={m.model_id}>
+                  {m.label} — ${m.input_rate_per_1m.toFixed(2)}/${m.output_rate_per_1m.toFixed(2)} per M tok
+                </option>
+              ))}
+            </optgroup>
+          ))}
+        </select>
+      </Row>
+      <Row label="Assignments/mo">
+        <input type="number" className="select-base" min={1} value={sel.assignments_per_course ?? 4} onChange={(e) => onChange({ assignments_per_course: Number(e.target.value) || 0 })} />
+      </Row>
+      {calc && (
+        <p className="text-xs text-neutral-400 mt-0.5">
+          Formula price: ${calc.customerPricePerStudentPerYear.toFixed(2)}/student/yr
+          {' '}(COGS ${calc.totalBlendedCogsPerStudentPerYear.toFixed(2)}, target margin {(cotutorContext.assumptions.target_gross_margin * 100).toFixed(1)}%)
+        </p>
+      )}
+      <OverrideRow value={sel.override_price} onChange={(v) => onChange({ override_price: v })} />
+      {sel.override_price != null && calc && sel.override_price < calc.customerPricePerStudentPerYear && (
+        <Warn>Override is below the formula-derived price — actual margin will be lower than the {(cotutorContext.assumptions.target_gross_margin * 100).toFixed(1)}% target. Verify before quoting.</Warn>
+      )}
+    </>
+  )
+}
+
+function PowerGraderFields({ sel, inputs, powerGraderContext, onChange }: {
+  sel: SelectedProduct
+  inputs: Omit<DealInputs, 'deal_id'>
+  powerGraderContext: PowerGraderPricingContext | null
+  onChange: (patch: Partial<SelectedProduct>) => void
+}) {
+  if (!powerGraderContext) return <p className="text-xs text-amber-600">PowerGrader pricing assumptions still loading…</p>
+
+  const pagesPerInstruction = sel.pages_per_instruction ?? 0.5
+  const pagesPerSubmission = sel.pages_per_submission ?? 6
+  const assignmentsPerMonth = sel.assignments_per_month ?? 5
+  const pagesPerQuizInstruction = sel.pages_per_quiz_instruction ?? 0.5
+  const pagesPerQuizSubmission = sel.pages_per_quiz_submission ?? 1
+  const quizzesPerMonth = sel.quizzes_per_month ?? 1
+
+  const calc = inputs.student_count > 0
+    ? calculatePowerGraderPrice(inputs.student_count, pagesPerInstruction, pagesPerSubmission, assignmentsPerMonth, pagesPerQuizInstruction, pagesPerQuizSubmission, quizzesPerMonth, powerGraderContext)
+    : null
+
+  return (
+    <>
+      <p className="text-xs text-neutral-400">Assignments</p>
+      <div className="grid grid-cols-2 gap-2">
+        <Row label="Instr. pages">
+          <input type="number" className="select-base" min={0} step={0.5} value={pagesPerInstruction} onChange={(e) => onChange({ pages_per_instruction: Number(e.target.value) || 0 })} />
+        </Row>
+        <Row label="Sub. pages">
+          <input type="number" className="select-base" min={0} step={0.5} value={pagesPerSubmission} onChange={(e) => onChange({ pages_per_submission: Number(e.target.value) || 0 })} />
+        </Row>
+      </div>
+      <Row label="Assign./month">
+        <input type="number" className="select-base" min={0} value={assignmentsPerMonth} onChange={(e) => onChange({ assignments_per_month: Number(e.target.value) || 0 })} />
+      </Row>
+
+      <p className="text-xs text-neutral-400 mt-2">Quizzes / exams</p>
+      <div className="grid grid-cols-2 gap-2">
+        <Row label="Instr. pages">
+          <input type="number" className="select-base" min={0} step={0.5} value={pagesPerQuizInstruction} onChange={(e) => onChange({ pages_per_quiz_instruction: Number(e.target.value) || 0 })} />
+        </Row>
+        <Row label="Sub. pages">
+          <input type="number" className="select-base" min={0} step={0.5} value={pagesPerQuizSubmission} onChange={(e) => onChange({ pages_per_quiz_submission: Number(e.target.value) || 0 })} />
+        </Row>
+      </div>
+      <Row label="Quizzes/month">
+        <input type="number" className="select-base" min={0} value={quizzesPerMonth} onChange={(e) => onChange({ quizzes_per_month: Number(e.target.value) || 0 })} />
+      </Row>
+
+      <Row label="LMS platform">
+        <select className="select-base" value={sel.lms_platform ?? 'Canvas'} onChange={(e) => onChange({ lms_platform: e.target.value as SelectedProduct['lms_platform'] })}>
+          <option>Canvas</option>
+          <option>D2L</option>
+          <option>Blackboard</option>
+          <option>Moodle</option>
+        </select>
+        {sel.lms_platform === 'D2L' && <Warn>D2L has known integration challenges — flag for tech review.</Warn>}
+        {(sel.lms_platform === 'Blackboard' || sel.lms_platform === 'Moodle') && <Warn>{sel.lms_platform} support is limited — confirm integration readiness.</Warn>}
+      </Row>
+
+      {calc && (
+        <p className="text-xs text-neutral-400 mt-0.5">
+          Formula price: ${calc.monthlyPlatformCost.toLocaleString()}/mo (${calc.costPerStudentPerMonth.toFixed(2)}/student/mo) — COGS ${calc.monthlyCogs.toLocaleString()}/mo
+        </p>
+      )}
+      <OverrideRow value={sel.override_price} onChange={(v) => onChange({ override_price: v })} />
+    </>
+  )
+}
+
+function TrustEdFields({ sel, inputs, hasCotutor, trustedContext, onChange }: {
+  sel: SelectedProduct
+  inputs: Omit<DealInputs, 'deal_id'>
+  hasCotutor: boolean
+  trustedContext: TrustEdPricingContext | null
+  onChange: (patch: Partial<SelectedProduct>) => void
+}) {
+  if (!trustedContext) return <p className="text-xs text-amber-600">TrustEd pricing assumptions still loading…</p>
+
+  const assignmentsPerMonth = sel.trusted_assignments_per_month ?? 4
+  const calc = inputs.student_count > 0
+    ? calculateTrustEdPrice(inputs.student_count, assignmentsPerMonth, hasCotutor, trustedContext)
+    : null
+
+  return (
+    <>
+      <Row label="Assignments analyzed/mo">
+        <input type="number" className="select-base" min={0} value={assignmentsPerMonth} onChange={(e) => onChange({ trusted_assignments_per_month: Number(e.target.value) || 0 })} />
+        <p className="text-xs text-neutral-400 mt-0.5">Starting point: ExamSpace assignments where students are analyzed and aware of it.</p>
+      </Row>
+      <Row label="Video playback">
+        <select className="select-base" value={sel.video_playback ? 'yes' : 'no'} onChange={(e) => onChange({ video_playback: e.target.value === 'yes' })}>
+          <option value="no">Excluded</option>
+          <option value="yes">Included (+$6/student/yr)</option>
+        </select>
+      </Row>
+
+      {calc && (
+        calc.isFree ? (
+          <p className="text-xs text-emerald-600 mt-0.5">Included free with CoTutor (COGS ${calc.annualCogs.toLocaleString()}/yr absorbed, not billed).</p>
+        ) : (
+          <p className="text-xs text-neutral-400 mt-0.5">
+            Formula price: ${calc.pricePerStudentPerYear.toFixed(2)}/student/yr ({calc.totalAssignmentsPerYear.toLocaleString()} assignments/yr, COGS ${calc.cogsPerAssignment.toFixed(3)}/assignment)
+          </p>
+        )
+      )}
+      {!calc?.isFree && <OverrideRow value={sel.override_price} onChange={(v) => onChange({ override_price: v })} />}
+    </>
+  )
+}
+
+function ExamSpaceFields({ sel, findPrice, onChange }: {
+  sel: SelectedProduct
+  findPrice: (tierName: string, pricingType?: string) => number | null
+  onChange: (patch: Partial<SelectedProduct>) => void
+}) {
+  return (
+    <>
+      <Row label="Tier">
+        <select className="select-base" value={sel.examspace_tier ?? 'Medium'} onChange={(e) => onChange({ examspace_tier: e.target.value })}>
+          <option value="Container">Container (browser only) — ${findPrice('Container', 'per_student') ?? '—'}/student/yr</option>
+          <option value="Linux">Linux — ${findPrice('Linux', 'per_student') ?? '—'}/student/yr</option>
+          <option value="Small">Small (Windows) — ${findPrice('Small', 'per_student') ?? '—'}/student/yr</option>
+          <option value="Medium">Medium — ${findPrice('Medium', 'per_student') ?? '—'}/student/yr</option>
+          <option value="Large">Large — ${findPrice('Large', 'per_student') ?? '—'}/student/yr</option>
+          <option value="GPU">GPU (Windows) — ${findPrice('GPU', 'per_student') ?? '—'}/student/yr</option>
+        </select>
+        <p className="text-xs text-neutral-400 mt-0.5">Billed $/student/year, not $/seat-day.</p>
+      </Row>
+      <Row label="GPU required">
+        <select className="select-base" value={sel.gpu_requirement ? 'yes' : 'no'} onChange={(e) => onChange({ gpu_requirement: e.target.value === 'yes' })}>
+          <option value="no">No — standard compute</option>
+          <option value="yes">Yes — GPU workload</option>
+        </select>
+        {sel.gpu_requirement && sel.examspace_tier !== 'GPU' && <Warn>GPU flagged but non-GPU tier selected — verify.</Warn>}
+      </Row>
+      <OverrideRow value={sel.override_price} onChange={(v) => onChange({ override_price: v })} />
+    </>
+  )
+}
+
 function Section({ label, expanded, onToggle, children, badge }: {
   label: string; expanded: boolean; onToggle: () => void; children: React.ReactNode; badge?: string
 }) {
@@ -463,7 +577,7 @@ function ProductIntel({ product, facts }: { product: Product; facts: ProductFact
   if (!hasAnything) return null
 
   return (
-    <div className="mt-3 border-t border-brand-100 pt-2.5">
+    <div className="mt-2 border-t border-neutral-100 pt-2">
       <button
         onClick={() => setOpen((o) => !o)}
         className="flex items-center gap-1.5 text-xs font-medium text-neutral-500 hover:text-neutral-700 transition-colors"

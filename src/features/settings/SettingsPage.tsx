@@ -63,7 +63,7 @@ export function SettingsPage() {
         )}
 
         {activeTab === 'admin' && (level >= 3 || _prv) && (
-          <AdminConfigTab profileId={profile?.id ?? null} />
+          <AdminConfigTab profileId={profile?.id ?? null} isL4={level >= 4 || _prv} />
         )}
       </div>
     </div>

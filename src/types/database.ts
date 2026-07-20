@@ -387,6 +387,77 @@ export interface Database {
           sort_order?: number
         }
       }
+      powergrader_pricing_assumptions: {
+        Row: {
+          id: string
+          config_version_id: string
+          input_token_price_per_token: number
+          output_token_price_per_token: number
+          tokens_per_page: number
+          token_buffer_multiplier: number
+          platform_cost_multiplier: number
+          pwg_context_pages_per_submission: number
+          base_cost_per_submission: number
+          charm_price_rounding_increment: number
+          source_reference: string | null
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          config_version_id: string
+          input_token_price_per_token: number
+          output_token_price_per_token: number
+          tokens_per_page: number
+          token_buffer_multiplier: number
+          platform_cost_multiplier: number
+          pwg_context_pages_per_submission: number
+          base_cost_per_submission: number
+          charm_price_rounding_increment?: number
+          source_reference?: string | null
+        }
+        Update: {
+          input_token_price_per_token?: number
+          output_token_price_per_token?: number
+          tokens_per_page?: number
+          token_buffer_multiplier?: number
+          platform_cost_multiplier?: number
+          pwg_context_pages_per_submission?: number
+          base_cost_per_submission?: number
+          charm_price_rounding_increment?: number
+          source_reference?: string | null
+        }
+      }
+      trusted_pricing_assumptions: {
+        Row: {
+          id: string
+          config_version_id: string
+          target_gross_margin: number
+          free_with_cotutor: boolean
+          storage_cost_per_assignment: number
+          analysis_cost_per_assignment: number
+          fixed_infra_per_student_year: number
+          source_reference: string | null
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          config_version_id: string
+          target_gross_margin: number
+          free_with_cotutor?: boolean
+          storage_cost_per_assignment: number
+          analysis_cost_per_assignment: number
+          fixed_infra_per_student_year?: number
+          source_reference?: string | null
+        }
+        Update: {
+          target_gross_margin?: number
+          free_with_cotutor?: boolean
+          storage_cost_per_assignment?: number
+          analysis_cost_per_assignment?: number
+          fixed_infra_per_student_year?: number
+          source_reference?: string | null
+        }
+      }
       deals: {
         Row: {
           id: string
