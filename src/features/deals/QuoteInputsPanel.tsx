@@ -24,9 +24,9 @@ interface Props {
 
 const COMPLIANCE_OPTIONS = ['FERPA DPA', 'VPAT/WCAG 2.2 AA', 'LTI 1.3', 'SOC 2 Type II', 'HECVAT']
 
-// CoTutor/PowerGrader/TrustEd formulas only recognize 9 (academic year) or 12 (full year) billing
-// months — a different axis from DealInputs.contract_term (renewal length). Defaulting to 9 until
-// a dedicated field exists for it — see academicMonthsPerYear() in pricing-engine.ts.
+// CoTutor's own billing-months assumption (9, academic year) — PowerGrader and TrustEd have their
+// own different constants (12 and 10 respectively, per their own source workbooks) baked directly
+// into calculatePowerGraderPrice()/calculateTrustEdPrice() in pricing-engine.ts, not shared here.
 const ACADEMIC_MONTHS_PER_YEAR = 9
 
 // TrustEd is an addon on top of the full suite, not a standalone pick — it only ever prices
@@ -71,6 +71,7 @@ export function QuoteInputsPanel({ inputs, products, pricingModels, cotutorConte
   const [inputsExpanded, setInputsExpanded] = useState(true)
   const [termsExpanded, setTermsExpanded] = useState(false)
   const [discountExpanded, setDiscountExpanded] = useState(true)
+  const [overridesExpanded, setOverridesExpanded] = useState(false)
 
   function update(partial: Partial<Omit<DealInputs, 'deal_id'>>) {
     onInputsChange({ ...inputs, ...partial })
@@ -278,23 +279,33 @@ export function QuoteInputsPanel({ inputs, products, pricingModels, cotutorConte
                   )
                 })}
 
-                {/* All price overrides together, once, at the bottom */}
-                <div className="space-y-2 border-t border-neutral-100 pt-3">
-                  <div className="text-xs font-semibold text-neutral-700">Price overrides</div>
-                  <p className="text-xs text-neutral-400">Leave blank to use the formula-derived price.</p>
-                  {inputs.selected_products.map((sel) => {
-                    const p = products.find((pr) => pr.id === sel.product_id)
-                    if (!p) return null
-                    if (p.slug === 'trusted' && trustedContext?.assumptions.free_with_cotutor && hasCotutor) return null
-                    return (
-                      <Row key={sel.product_id} label={p.name}>
-                        <div className="flex items-center">
-                          <span className="inline-flex items-center px-2 h-8 rounded-l-md border border-r-0 border-neutral-300 bg-neutral-50 text-neutral-500 text-xs select-none">$</span>
-                          <input type="number" className="select-base rounded-l-none border-l-0" placeholder="Config default" value={sel.override_price ?? ''} onChange={(e) => updateSel(sel.product_id, { override_price: e.target.value ? Number(e.target.value) : undefined })} min={0} step={0.01} />
-                        </div>
-                      </Row>
-                    )
-                  })}
+                {/* All price overrides together, once, at the bottom — folded by default. */}
+                <div className="border-t border-neutral-100 pt-3">
+                  <button
+                    onClick={() => setOverridesExpanded((e) => !e)}
+                    className="w-full flex items-center justify-between text-left"
+                  >
+                    <span className="text-xs font-semibold text-neutral-700">Price overrides</span>
+                    {overridesExpanded ? <ChevronDown className="w-3.5 h-3.5 text-neutral-400" /> : <ChevronRight className="w-3.5 h-3.5 text-neutral-400" />}
+                  </button>
+                  {overridesExpanded && (
+                    <div className="space-y-2 mt-2">
+                      <p className="text-xs text-neutral-400">Leave blank to use the formula-derived price.</p>
+                      {inputs.selected_products.map((sel) => {
+                        const p = products.find((pr) => pr.id === sel.product_id)
+                        if (!p) return null
+                        if (p.slug === 'trusted' && trustedContext?.assumptions.free_with_cotutor && hasCotutor) return null
+                        return (
+                          <Row key={sel.product_id} label={p.name}>
+                            <div className="flex items-center">
+                              <span className="inline-flex items-center px-2 h-8 rounded-l-md border border-r-0 border-neutral-300 bg-neutral-50 text-neutral-500 text-xs select-none">$</span>
+                              <input type="number" className="select-base rounded-l-none border-l-0" placeholder="Config default" value={sel.override_price ?? ''} onChange={(e) => updateSel(sel.product_id, { override_price: e.target.value ? Number(e.target.value) : undefined })} min={0} step={0.01} />
+                            </div>
+                          </Row>
+                        )
+                      })}
+                    </div>
+                  )}
                 </div>
               </div>
             )

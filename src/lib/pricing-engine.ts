@@ -125,14 +125,21 @@ export function calculateCoTutorPrice(
   }
 }
 
-/** Billing months per academic year — shared by CoTutor and PowerGrader, whose source workbooks
- *  both bill against usage-per-month rather than a flat annual rate. 9 (academic year) or 12
- *  (full year) are the only values either source recognizes. DealInputs.contract_term
- *  (annual/2-year/3-year) is renewal length, a different axis from this. Defaulting to 9
- *  (academic year) until SelectedProduct exposes an explicit field for it. */
-function academicMonthsPerYear(): 9 | 12 {
-  return 9
-}
+/**
+ * Billing months per year — CoTutor, PowerGrader, and TrustEd each bill against usage-per-month
+ * rather than a flat annual rate, but their own source documents disagree on how many months a
+ * "year" means for annualizing that monthly figure. Each is a per-product constant, not one
+ * shared value — DealInputs.contract_term (annual/2-year/3-year) is renewal length, a separate
+ * axis from this.
+ */
+/** CoTutor_Pricing_Final.xlsx SALES_QUOTE sheet: 9-month academic year. */
+const COTUTOR_MONTHS_PER_YEAR = 9
+/** PowerGrader_Pricing_Calculator_Internal.xlsx "PowerGrader Internal Cost" sheet, cell C19 =
+ *  "TOTAL YEARLY COST" = monthly × 12 — full calendar year, not an academic-year assumption. */
+const POWERGRADER_MONTHS_PER_YEAR = 12
+/** TrustEd_Pricing_Models.xlsx "Model 2 - TrustEd Only" sheet, cell B14: "Months per Year" = 10
+ *  ("Academic year length"). */
+const TRUSTED_MONTHS_PER_YEAR = 10
 
 /**
  * PowerGrader formula-driven pricing. Replaces the 3 flat, unsourced pricing_models rows
@@ -199,7 +206,7 @@ export function calculatePowerGraderPrice(
   const inc = a.charm_price_rounding_increment
   const monthlyPlatformCost = Math.max(0, Math.floor(rawMonthlyCustomerCost / inc) * inc - 1)
 
-  const months = academicMonthsPerYear()
+  const months = POWERGRADER_MONTHS_PER_YEAR
 
   return {
     monthlyPlatformCost: round2(monthlyPlatformCost),
@@ -246,7 +253,7 @@ export function calculateTrustEdPrice(
   ctx: TrustEdPricingContext
 ): TrustEdCalculation {
   const a = ctx.assumptions
-  const months = academicMonthsPerYear()
+  const months = TRUSTED_MONTHS_PER_YEAR
 
   const cogsPerAssignment = a.storage_cost_per_assignment + a.analysis_cost_per_assignment
   const totalAssignmentsPerYear = studentCount * assignmentsAnalyzedPerMonth * months
@@ -581,7 +588,7 @@ function buildProductLines(
       const calc = calculateCoTutorPrice(
         inputs.student_count,
         assignmentsPerMonth,
-        academicMonthsPerYear(),
+        COTUTOR_MONTHS_PER_YEAR,
         modelId,
         cotutorContext
       )
